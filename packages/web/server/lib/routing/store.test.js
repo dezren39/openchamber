@@ -31,7 +31,9 @@ describe('routing store', () => {
     const store = createRoutingStore({ dataDir: dir });
     const config = sampleConfig();
     config.categories[0] = { ...config.categories[0], enabled: false };
-    config.categories[3] = { ...config.categories[3], model: { providerID: 'openai', modelID: 'gpt-6-astra' }, variant: 'high', agent: 'plan' };
+    config.categories = config.categories.map((category) => category.id === 'hard'
+      ? { ...category, model: { providerID: 'openai', modelID: 'gpt-6-astra' }, variant: 'high', agent: 'plan' }
+      : category);
     config.categories.push({ id: 'my-refactors', builtin: false, enabled: true, name: 'My refactors', description: 'Refactors across modules.', model: null, variant: null, agent: null });
     await store.writeConfig(config);
 
@@ -50,7 +52,7 @@ describe('routing store', () => {
     const stored = toStoredConfig(config);
     expect(stored.categories.research).toEqual({ builtin: true, deleted: true });
     const resolved = resolveEffectiveConfig(stored);
-    expect(resolved.categories.map((c) => c.id)).toEqual(['trivial', 'implement', 'hard']);
+    expect(resolved.categories.map((c) => c.id)).toEqual(['trivial', 'implement', 'review', 'hard']);
   });
 
   it('applies later built-in text to an untouched category but keeps an edited one', () => {

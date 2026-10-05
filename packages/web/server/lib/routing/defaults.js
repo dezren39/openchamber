@@ -132,6 +132,11 @@ export const BUILTIN_CATEGORIES = [
     description: 'Ordinary engineering with a clear, bounded shape: implement a well-specified function, endpoint, or component; write or fix tests for existing behaviour; a localised bug fix where the cause is already understood. Not for open-ended architecture, subtle concurrency, or unknown-cause debugging.',
   },
   {
+    id: 'review',
+    name: 'Review',
+    description: 'Inspect a change for correctness, regressions, security issues, and missing tests. Report findings without editing files unless the request explicitly asks for fixes. Not for open-ended system design or debugging an unknown failure.',
+  },
+  {
     id: 'hard',
     name: 'Hard',
     description: 'Hard reasoning, ambiguity, planning, or high blast radius: debug a failure whose cause is unknown, plan or design a change across several modules, security, auth, concurrency, data-migration, or money-handling logic. Not for work a competent mid-level engineer would finish without thinking hard.',

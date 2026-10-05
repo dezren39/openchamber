@@ -18,13 +18,14 @@ When everything is in place, the page says **Ready**. Pick **Auto** at the top o
 
 ## Categories
 
-Every prompt lands in one category. Four come built in:
+Every prompt lands in one category. Five come built in:
 
 | Category | For |
 | --- | --- |
 | Trivial | mechanical work: renames, typos, formatting, comments, simple commands |
 | Research | reading and explaining code without changing it |
 | Implement | a clear change: a feature with a known shape, tests, a fix whose cause is known |
+| Review | inspect changes for correctness, regressions, security issues and missing tests; report findings without editing |
 | Hard | bugs with an unknown cause, design and planning, security, auth, concurrency, migrations, money |
 
 For each category you can set:
@@ -32,6 +33,23 @@ For each category you can set:
 - **Model:** empty means the fallback model
 - **Thinking:** the thinking level for that model
 - **Agent:** the agent that runs these tasks; empty keeps the agent the composer would use
+
+## Use provider pools for category models
+
+OpenChamber chooses the category, thinking level and agent. OpenCode owns
+provider failover. Define ordered pools in OpenCode's
+`experimental.model_routes`, then choose the route model for a category. For
+example, set **Trivial** to `opencode-route/cheap-fast`, **Implement** to
+`opencode-route/smart-slow`, and **Hard** and **Review** to
+`opencode-route/frontier-heavy`. Jev still makes the task decision; the chosen
+route then tries its providers in order.
+
+OpenCode moves to another target on retryable provider failures, quota or
+authentication errors, and a missed first-output deadline. Completed requests
+can also mark a target degraded using the configured latency or throughput
+thresholds. Health is shared by sessions in the OpenCode process for up to the
+configured cooldown, but is not persisted. A turn is never replayed after any
+answer or tool output has started.
 
 Jev sorts prompts by reading the category names and descriptions, so the descriptions work as instructions. Say what belongs in the category and what doesn't. You can edit, turn off, remove or add categories, and restore a built-in one if you change your mind. Auto needs at least two categories turned on.
 
