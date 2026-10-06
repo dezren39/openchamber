@@ -207,22 +207,57 @@ const CategoryRow: React.FC<{
 
 const DEFAULT_STICKINESS = { enabled: true, enterTurns: 2, exitTurns: 3, strongConfidence: 0.9 };
 
-/** A whole number of prompts, 1 to 10; an empty or out-of-range entry is not saved. */
-const TurnsInput: React.FC<{ value: number; ariaLabel: string; onChange: (turns: number) => void }> = ({ value, ariaLabel, onChange }) => (
-  <Input
-    type="number"
-    min={1}
-    max={10}
-    step={1}
-    value={value}
-    aria-label={ariaLabel}
-    className="h-8 w-24 rounded-md px-3"
-    onChange={(event) => {
-      const turns = Number(event.target.value);
-      if (Number.isInteger(turns) && turns >= 1 && turns <= 10) onChange(turns);
-    }}
-  />
-);
+const TURNS_COMMIT_DELAY_MS = 600;
+
+/**
+ * A whole number of prompts, 1 to 10. The field keeps the text being typed, so it can be cleared
+ * and retyped. A valid number is saved once typing pauses, so "1" on the way to "10" is never saved,
+ * and leaving the field restores the saved number if what is shown was not valid.
+ */
+const TurnsInput: React.FC<{ value: number; ariaLabel: string; onChange: (turns: number) => void }> = ({ value, ariaLabel, onChange }) => {
+  const [text, setText] = React.useState(String(value));
+  const editingRef = React.useRef(false);
+  const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onChangeRef = React.useRef(onChange);
+  onChangeRef.current = onChange;
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+  React.useEffect(() => {
+    if (!editingRef.current) setText(String(value));
+  }, [value]);
+  React.useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+  const commit = (raw: string) => {
+    const turns = Number(raw);
+    if (raw !== '' && Number.isInteger(turns) && turns >= 1 && turns <= 10 && turns !== valueRef.current) onChangeRef.current(turns);
+  };
+  return (
+    <Input
+      type="number"
+      min={1}
+      max={10}
+      step={1}
+      value={text}
+      aria-label={ariaLabel}
+      className="h-8 w-24 rounded-md px-3"
+      onFocus={() => { editingRef.current = true; }}
+      onBlur={() => {
+        editingRef.current = false;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = null;
+        commit(text);
+        setText(/^\d+$/.test(text) && Number(text) >= 1 && Number(text) <= 10 ? text : String(value));
+      }}
+      onChange={(event) => {
+        const raw = event.target.value;
+        setText(raw);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => { timerRef.current = null; commit(raw); }, TURNS_COMMIT_DELAY_MS);
+      }}
+    />
+  );
+};
 
 export const RoutingPage: React.FC = () => {
   const { t } = useI18n();

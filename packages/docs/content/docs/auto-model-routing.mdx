@@ -71,8 +71,8 @@ route then tries its providers in order.
 OpenCode moves to another target on retryable provider failures, quota or
 authentication errors, and a missed first-output deadline. Completed requests
 can also mark a target degraded using the configured latency or throughput
-thresholds. Cooldowns are shared by sessions in the OpenCode process and are not
-persisted, but OpenCode records every routing decision, attempt (exact error
+thresholds. Cooldowns are shared by sessions in the OpenCode process and restored after a
+restart, and OpenCode records every routing decision, attempt (exact error
 code and message, timings, token counts) and cooldown in its database for later
 analysis. A turn is never replayed after any answer or tool output has started.
 
