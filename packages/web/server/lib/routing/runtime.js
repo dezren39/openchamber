@@ -16,6 +16,7 @@ import { OpenCode } from '@opencode/client';
 import { z } from 'zod';
 import { AUTO_MODEL_REF, BUILTIN_CATEGORIES, ZEN_JEV_PROMOTION_ACTIVE, isAutoModel } from './defaults.js';
 import { createRoutingStore, parseEffectiveConfig } from './store.js';
+import { createStickiness } from './stickiness.js';
 import { buildPermissionRequest, buildRoutingRequest, createJevClient, decidePermission, decideRouting } from './jev.js';
 import {
   CLASSIFIER_SOURCES,
@@ -132,6 +133,7 @@ export function createRoutingRuntime({
   // composer still shows Auto. Either persist it next to `routing.json` or have
   // the client resend the sentinel with every send.
   const autoSessions = new Map();
+  const stickiness = createStickiness();
   const AUTO_SESSION_LIMIT = 1000;
 
   const broadcast = (type, properties) => {
@@ -247,6 +249,30 @@ export function createRoutingRuntime({
     };
   };
 
+  const selectionKey = (selection) => `${selection.decision.providerID}/${selection.decision.modelID}#${selection.decision.variant ?? ''}`;
+
+  /**
+   * Jev's category answer, damped by the session's recent choices (see
+   * ./stickiness.js). A prompt Jev could not place keeps the session's model
+   * once it has one; the fallback pair only serves a session with no history.
+   */
+  const chooseWithStickiness = ({ sessionId, config, category, confidence, agent, decision, noSignal = false }) => {
+    const candidate = category && !noSignal
+      ? { key: selectionKey(chooseSelection(config, category, agent)), categoryId: category.id, confidence }
+      : null;
+    const verdict = stickiness.decide(sessionId, candidate);
+    const kept = verdict.categoryId === null
+      ? null
+      : enabledCategories(config).find((entry) => entry.id === verdict.categoryId) ?? null;
+    const selection = chooseSelection(config, kept, agent);
+    if (verdict.held) {
+      decision.held = true;
+      decision.heldReason = verdict.reason;
+      if (candidate) decision.candidate = candidate.categoryId;
+    }
+    return selection;
+  };
+
   const readCatalog = listCatalogModels
     ?? (async (directory) => catalogResponseSchema.parse(await openCodeClient(directory).model.list()).data);
 
@@ -315,11 +341,11 @@ export function createRoutingRuntime({
         decision.confidence = result.confidence;
         decision.reason = result.reason;
         decision.ms = ms;
-        selection = chooseSelection(config, result.category, agent);
+        selection = chooseWithStickiness({ sessionId, config, category: result.category, confidence: result.confidence, agent, decision });
       } catch (error) {
         decision.reason = 'error';
         decision.error = errorMessage(error);
-        selection = chooseSelection(config, null, agent);
+        selection = chooseWithStickiness({ sessionId, config, category: null, confidence: 0, agent, decision, noSignal: true });
       }
     } else {
       selection = chooseSelection(config, null, agent);
@@ -338,6 +364,7 @@ export function createRoutingRuntime({
     if (!sessionId) return false;
     if (!isAutoModel(model)) {
       autoSessions.delete(sessionId);
+      stickiness.forget(sessionId);
       return false;
     }
     autoSessions.delete(sessionId);

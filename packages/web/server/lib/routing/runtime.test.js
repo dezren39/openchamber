@@ -122,6 +122,23 @@ describe('resolveAutoSelection', () => {
     expect(resolved.agent).toBe('build');
   });
 
+  it('does not bounce a session between models on single borderline prompts', async () => {
+    const { runtime, jev } = makeRuntime({ answers: {} });
+    const ask = async (choice, confidence) => {
+      jev.ask.mockResolvedValueOnce({ answers: { category: { choice, confidence } }, ms: 5 });
+      return runtime.resolveAutoSelection(send());
+    };
+    expect((await ask('implement', 0.7)).model.id).toBe('claude-sonnet-5');
+    const held = await ask('hard', 0.7);
+    expect(held.model.id).toBe('claude-sonnet-5');
+    expect(held.decision).toMatchObject({ category: 'hard', held: true, candidate: 'hard' });
+    expect((await ask('hard', 0.7)).model.id).toBe('gpt-6-astra');
+    // Having jumped, one easy prompt does not send it back.
+    expect((await ask('implement', 0.7)).model.id).toBe('gpt-6-astra');
+    // A prompt Jev cannot place keeps the model instead of dropping to the fallback.
+    expect((await ask('implement', 0.2)).model.id).toBe('gpt-6-astra');
+  });
+
   it('falls back on low confidence and on a Jev failure, and records why', async () => {
     const low = makeRuntime({ answers: { category: { choice: 'hard', confidence: 0.3 } } });
     const lowResolved = await low.runtime.resolveAutoSelection(send());

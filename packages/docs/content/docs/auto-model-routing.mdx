@@ -34,6 +34,25 @@ For each category you can set:
 - **Thinking:** the thinking level for that model
 - **Agent:** the agent that runs these tasks; empty keeps the agent the composer would use
 
+## Auto stays on a model across similar prompts
+
+Jev classifies every prompt on its own, so two similar follow-ups can land in
+neighbouring categories. To keep a session from bouncing between models (and
+losing the provider's prompt cache each time), Auto holds the session's model
+unless the evidence for a change is consistent:
+
+- Leaving the model a session started on takes two prompts in a row that point
+  at the same other model, or one prompt Jev is sure about.
+- After a jump to a stronger model, the session stays there until three prompts
+  in a row point elsewhere. A sure answer shortens that, but never below two.
+- A prompt Jev cannot place (low confidence, unknown category, Jev unreachable)
+  keeps the current model. The fallback model only serves a session with no
+  history yet.
+
+The routing decision shows `held` when Auto kept the model against Jev's latest
+answer. This memory lives in the server process, so a restart starts sessions
+fresh.
+
 ## Use provider pools for category models
 
 OpenChamber chooses the category, thinking level and agent. OpenCode owns
@@ -47,9 +66,10 @@ route then tries its providers in order.
 OpenCode moves to another target on retryable provider failures, quota or
 authentication errors, and a missed first-output deadline. Completed requests
 can also mark a target degraded using the configured latency or throughput
-thresholds. Health is shared by sessions in the OpenCode process for up to the
-configured cooldown, but is not persisted. A turn is never replayed after any
-answer or tool output has started.
+thresholds. Cooldowns are shared by sessions in the OpenCode process and are not
+persisted, but OpenCode records every routing decision, attempt (exact error
+code and message, timings, token counts) and cooldown in its database for later
+analysis. A turn is never replayed after any answer or tool output has started.
 
 Jev sorts prompts by reading the category names and descriptions, so the descriptions work as instructions. Say what belongs in the category and what doesn't. You can edit, turn off, remove or add categories, and restore a built-in one if you change your mind. Auto needs at least two categories turned on.
 
