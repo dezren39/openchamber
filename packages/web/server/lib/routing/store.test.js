@@ -12,6 +12,7 @@ const sampleConfig = (patch = {}) => ({
   fallback: { model: { providerID: 'anthropic', modelID: 'claude-sonnet-5' }, variant: 'medium' },
   minConfidence: 0.6,
   safetyNet: { enabled: true, threshold: 0.6 },
+  stickiness: { enabled: true, enterTurns: 2, exitTurns: 3, strongConfidence: 0.9 },
   categories: resolveEffectiveConfig(null).categories,
   ...patch,
 });
@@ -24,6 +25,24 @@ describe('routing store', () => {
     expect(config.fallback).toBeNull();
     expect(config.categories.map((c) => c.id)).toEqual(BUILTIN_CATEGORIES.map((c) => c.id));
     expect(config.categories.every((c) => c.builtin && c.enabled && c.model === null)).toBe(true);
+  });
+
+  it('stores stickiness only when it differs from the defaults', async () => {
+    const dir = await tempDir();
+    const store = createRoutingStore({ dataDir: dir });
+    await store.writeConfig(sampleConfig());
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'routing.json'), 'utf8')).stickiness).toBeUndefined();
+    const tuned = { enabled: true, enterTurns: 1, exitTurns: 5, strongConfidence: 0.8 };
+    await store.writeConfig(sampleConfig({ stickiness: tuned }));
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'routing.json'), 'utf8')).stickiness).toEqual(tuned);
+    expect((await store.readConfig()).stickiness).toEqual(tuned);
+  });
+
+  it('rejects out-of-range stickiness and accepts a config without it', () => {
+    const base = sampleConfig();
+    expect(() => parseEffectiveConfig({ ...base, stickiness: { enabled: true, enterTurns: 0, exitTurns: 3, strongConfidence: 0.9 } })).toThrow(/stickiness/);
+    const { stickiness: _omitted, ...older } = base;
+    expect(parseEffectiveConfig(older).stickiness).toBeUndefined();
   });
 
   it('stores only deviations from the built-ins and round-trips them', async () => {

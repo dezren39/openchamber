@@ -205,6 +205,25 @@ const CategoryRow: React.FC<{
   );
 };
 
+const DEFAULT_STICKINESS = { enabled: true, enterTurns: 2, exitTurns: 3, strongConfidence: 0.9 };
+
+/** A whole number of prompts, 1 to 10; an empty or out-of-range entry is not saved. */
+const TurnsInput: React.FC<{ value: number; ariaLabel: string; onChange: (turns: number) => void }> = ({ value, ariaLabel, onChange }) => (
+  <Input
+    type="number"
+    min={1}
+    max={10}
+    step={1}
+    value={value}
+    aria-label={ariaLabel}
+    className="h-8 w-24 rounded-md px-3"
+    onChange={(event) => {
+      const turns = Number(event.target.value);
+      if (Number.isInteger(turns) && turns >= 1 && turns <= 10) onChange(turns);
+    }}
+  />
+);
+
 export const RoutingPage: React.FC = () => {
   const { t } = useI18n();
   const available = useRoutingStore((state) => state.available);
@@ -299,6 +318,12 @@ export const RoutingPage: React.FC = () => {
       return next;
     });
   }, [flush]);
+
+  // Servers from before the setting send none: the defaults they behave as.
+  const stickiness = draft?.stickiness ?? DEFAULT_STICKINESS;
+  const updateStickiness = (patch: Partial<typeof DEFAULT_STICKINESS>) => {
+    update((config) => ({ ...config, stickiness: { ...(config.stickiness ?? DEFAULT_STICKINESS), ...patch } }));
+  };
 
   const updateCategory = React.useCallback((id: string, patch: Partial<RoutingCategory>) => {
     update((config) => ({ ...config, categories: config.categories.map((category) => (category.id === id ? { ...category, ...patch } : category)) }));
@@ -402,6 +427,42 @@ export const RoutingPage: React.FC = () => {
                   ariaLabel={t('settings.routing.auto.fallbackThinking')}
                 />
               </SettingsFieldRow>
+              <div className={SETTINGS_OPTION_STACK_CLASS}>
+                <SettingsCheckboxRow
+                  settingsItem="routing.stickiness"
+                  checked={stickiness.enabled}
+                  onChange={(checked) => updateStickiness({ enabled: checked })}
+                  label={t('settings.routing.stickiness.enable')}
+                  ariaLabel={t('settings.routing.stickiness.enable')}
+                  info={t('settings.routing.stickiness.enableInfo')}
+                />
+              </div>
+              {stickiness.enabled ? (
+                <>
+                  <SettingsFieldRow
+                    settingsItem="routing.stickiness-enter"
+                    label={t('settings.routing.stickiness.enterTurns')}
+                    info={t('settings.routing.stickiness.enterTurnsInfo')}
+                  >
+                    <TurnsInput
+                      value={stickiness.enterTurns}
+                      ariaLabel={t('settings.routing.stickiness.enterTurns')}
+                      onChange={(enterTurns) => updateStickiness({ enterTurns })}
+                    />
+                  </SettingsFieldRow>
+                  <SettingsFieldRow
+                    settingsItem="routing.stickiness-exit"
+                    label={t('settings.routing.stickiness.exitTurns')}
+                    info={t('settings.routing.stickiness.exitTurnsInfo')}
+                  >
+                    <TurnsInput
+                      value={stickiness.exitTurns}
+                      ariaLabel={t('settings.routing.stickiness.exitTurns')}
+                      onChange={(exitTurns) => updateStickiness({ exitTurns })}
+                    />
+                  </SettingsFieldRow>
+                </>
+              ) : null}
             </div>
           </SettingsSection>
 

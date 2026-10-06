@@ -16,6 +16,7 @@ import { OpenCode } from '@opencode/client';
 import { z } from 'zod';
 import { AUTO_MODEL_REF, BUILTIN_CATEGORIES, ZEN_JEV_PROMOTION_ACTIVE, isAutoModel } from './defaults.js';
 import { createRoutingStore, parseEffectiveConfig } from './store.js';
+import { DEFAULT_STICKINESS } from './defaults.js';
 import { createStickiness } from './stickiness.js';
 import { buildPermissionRequest, buildRoutingRequest, createJevClient, decidePermission, decideRouting } from './jev.js';
 import {
@@ -257,10 +258,15 @@ export function createRoutingRuntime({
    * once it has one; the fallback pair only serves a session with no history.
    */
   const chooseWithStickiness = ({ sessionId, config, category, confidence, agent, decision, noSignal = false }) => {
+    const params = config.stickiness ?? DEFAULT_STICKINESS;
+    if (!params.enabled) {
+      stickiness.forget(sessionId);
+      return chooseSelection(config, category, agent);
+    }
     const candidate = category && !noSignal
       ? { key: selectionKey(chooseSelection(config, category, agent)), categoryId: category.id, confidence }
       : null;
-    const verdict = stickiness.decide(sessionId, candidate);
+    const verdict = stickiness.decide(sessionId, candidate, params);
     const kept = verdict.categoryId === null
       ? null
       : enabledCategories(config).find((entry) => entry.id === verdict.categoryId) ?? null;
@@ -457,6 +463,8 @@ export function createRoutingRuntime({
 
   const updateConfig = async (input) => {
     const config = parseEffectiveConfig(input);
+    // A client that predates the setting sends none: keep what is stored.
+    if (!config.stickiness) config.stickiness = (await store.readConfig()).stickiness;
     await store.writeConfig(config);
     return publishUpdated();
   };

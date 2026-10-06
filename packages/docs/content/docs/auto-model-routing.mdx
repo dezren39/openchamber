@@ -53,6 +53,11 @@ The routing decision shows `held` when Auto kept the model against Jev's latest
 answer. This memory lives in the server process, so a restart starts sessions
 fresh.
 
+In **Settings → Routing**, turn **Stay on the current model** off to follow every
+prompt, or change **Prompts to switch** and **Prompts to switch back**. The
+confidence that counts as "sure" is `stickiness.strongConfidence` in
+`routing.json` (default 0.9).
+
 ## Use provider pools for category models
 
 OpenChamber chooses the category, thinking level and agent. OpenCode owns

@@ -18,20 +18,17 @@
  * State is process memory like the Auto marks; a restart starts sessions fresh.
  */
 
-export const STICKINESS = Object.freeze({
-  enterTurns: 2,
-  exitTurns: 3,
-  strongConfidence: 0.9,
-  sessionLimit: 1000,
-});
+import { DEFAULT_STICKINESS } from './defaults.js';
 
-export const createStickiness = ({ params = STICKINESS } = {}) => {
+const SESSION_LIMIT = 1000;
+
+export const createStickiness = ({ sessionLimit = SESSION_LIMIT } = {}) => {
   const sessions = new Map();
 
   const remember = (sessionId, state) => {
     sessions.delete(sessionId);
     sessions.set(sessionId, state);
-    while (sessions.size > params.sessionLimit) sessions.delete(sessions.keys().next().value);
+    while (sessions.size > sessionLimit) sessions.delete(sessions.keys().next().value);
   };
 
   return {
@@ -40,7 +37,7 @@ export const createStickiness = ({ params = STICKINESS } = {}) => {
      * and null for none. Returns what to use now: `categoryId` (null means the
      * fallback pair), whether the choice `held` against the candidate, and why.
      */
-    decide(sessionId, candidate) {
+    decide(sessionId, candidate, params = DEFAULT_STICKINESS) {
       const state = sessions.get(sessionId);
       if (!state) {
         if (!candidate) return { categoryId: null, held: false, reason: 'initial' };

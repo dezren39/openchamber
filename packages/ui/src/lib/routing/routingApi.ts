@@ -27,6 +27,13 @@ const routingConfigSchema = z.object({
   fallback: z.object({ model: modelRefSchema, variant: z.string().nullable() }).nullable(),
   minConfidence: z.number(),
   safetyNet: z.object({ enabled: z.boolean(), threshold: z.number() }),
+  // Servers before Auto kept sessions on a model never send it.
+  stickiness: z.object({
+    enabled: z.boolean(),
+    enterTurns: z.number(),
+    exitTurns: z.number(),
+    strongConfidence: z.number(),
+  }).optional(),
   categories: z.array(routingCategorySchema),
 });
 

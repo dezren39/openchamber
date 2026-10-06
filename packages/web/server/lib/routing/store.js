@@ -21,6 +21,7 @@ import {
   BUILTIN_CATEGORIES,
   DEFAULT_MIN_CONFIDENCE,
   DEFAULT_SAFETY_THRESHOLD,
+  DEFAULT_STICKINESS,
   THINKING_LEVELS,
   isAutoModel,
 } from './defaults.js';
@@ -61,12 +62,20 @@ const userCategorySchema = z.object({
   agent: agentSchema.optional(),
 }).strict();
 
+const stickinessSchema = z.object({
+  enabled: z.boolean(),
+  enterTurns: z.number().int().min(1).max(10),
+  exitTurns: z.number().int().min(1).max(10),
+  strongConfidence: z.number().min(0.5).max(1),
+}).strict();
+
 const fileSchema = z.object({
   version: z.literal(FILE_VERSION),
   enabled: z.boolean().optional(),
   fallback: z.object({ model: modelSchema, variant: variantSchema.optional() }).strict().nullable().optional(),
   minConfidence: z.number().min(0).max(1).optional(),
   safetyNet: z.object({ enabled: z.boolean(), threshold: z.number().min(0).max(1) }).strict().optional(),
+  stickiness: stickinessSchema.optional(),
   categories: z.record(z.string().regex(CATEGORY_ID), z.discriminatedUnion('builtin', [builtinOverrideSchema, userCategorySchema])).optional(),
 }).strict();
 
@@ -87,6 +96,8 @@ const effectiveConfigSchema = z.object({
   fallback: z.object({ model: modelSchema, variant: variantSchema }).strict().nullable(),
   minConfidence: z.number().min(0).max(1),
   safetyNet: z.object({ enabled: z.boolean(), threshold: z.number().min(0).max(1) }).strict(),
+  // Older clients send configs without it; the runtime keeps the stored value then.
+  stickiness: stickinessSchema.optional(),
   categories: z.array(effectiveCategorySchema).max(32),
 }).strict();
 
@@ -179,6 +190,7 @@ export const resolveEffectiveConfig = (stored) => {
     fallback: file.fallback ? { model: file.fallback.model, variant: file.fallback.variant ?? null } : null,
     minConfidence: file.minConfidence ?? DEFAULT_MIN_CONFIDENCE,
     safetyNet: file.safetyNet ?? { enabled: false, threshold: DEFAULT_SAFETY_THRESHOLD },
+    stickiness: file.stickiness ?? { ...DEFAULT_STICKINESS },
     categories,
   };
 };
@@ -215,6 +227,9 @@ export const toStoredConfig = (config) => {
     if (!present.has(builtin.id)) categories[builtin.id] = { builtin: true, deleted: true };
   }
   const stored = { version: FILE_VERSION, enabled: config.enabled, minConfidence: config.minConfidence, safetyNet: config.safetyNet };
+  const sameStickiness = config.stickiness
+    && Object.keys(DEFAULT_STICKINESS).every((field) => config.stickiness[field] === DEFAULT_STICKINESS[field]);
+  if (config.stickiness && !sameStickiness) stored.stickiness = config.stickiness;
   if (config.fallback) {
     stored.fallback = { model: config.fallback.model };
     if (config.fallback.variant) stored.fallback.variant = config.fallback.variant;

@@ -139,6 +139,34 @@ describe('resolveAutoSelection', () => {
     expect((await ask('implement', 0.2)).model.id).toBe('gpt-6-astra');
   });
 
+  it('follows each prompt when stickiness is turned off, and honours tuned thresholds', async () => {
+    const off = readyConfig();
+    off.stickiness = { enabled: false, enterTurns: 2, exitTurns: 3, strongConfidence: 0.9 };
+    const free = makeRuntime({ config: off, answers: {} });
+    const ask = async (made, choice, confidence) => {
+      made.jev.ask.mockResolvedValueOnce({ answers: { category: { choice, confidence } }, ms: 5 });
+      return made.runtime.resolveAutoSelection(send());
+    };
+    expect((await ask(free, 'implement', 0.7)).model.id).toBe('claude-sonnet-5');
+    expect((await ask(free, 'hard', 0.7)).model.id).toBe('gpt-6-astra');
+    expect((await ask(free, 'implement', 0.7)).model.id).toBe('claude-sonnet-5');
+
+    const quick = readyConfig();
+    quick.stickiness = { enabled: true, enterTurns: 1, exitTurns: 1, strongConfidence: 0.9 };
+    const eager = makeRuntime({ config: quick, answers: {} });
+    await ask(eager, 'implement', 0.7);
+    expect((await ask(eager, 'hard', 0.7)).model.id).toBe('gpt-6-astra');
+  });
+
+  it('keeps the stored stickiness when an older client saves a config without it', async () => {
+    const stored = readyConfig();
+    stored.stickiness = { enabled: true, enterTurns: 1, exitTurns: 5, strongConfidence: 0.8 };
+    const { runtime, store } = makeRuntime({ config: stored, answers: {} });
+    const { stickiness: _omitted, ...fromOlderClient } = stored;
+    await runtime.updateConfig(fromOlderClient);
+    expect(store.writeConfig.mock.calls.at(-1)[0].stickiness).toEqual(stored.stickiness);
+  });
+
   it('falls back on low confidence and on a Jev failure, and records why', async () => {
     const low = makeRuntime({ answers: { category: { choice: 'hard', confidence: 0.3 } } });
     const lowResolved = await low.runtime.resolveAutoSelection(send());

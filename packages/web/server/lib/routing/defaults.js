@@ -145,3 +145,9 @@ export const BUILTIN_CATEGORIES = [
 
 export const DEFAULT_MIN_CONFIDENCE = 0.6;
 export const DEFAULT_SAFETY_THRESHOLD = 0.6;
+/**
+ * How strongly Auto keeps a session on its model (see ./stickiness.js):
+ * `enterTurns` consistent prompts to leave the starting model, `exitTurns` to
+ * leave one it jumped to, `strongConfidence` for a prompt Jev is sure about.
+ */
+export const DEFAULT_STICKINESS = Object.freeze({ enabled: true, enterTurns: 2, exitTurns: 3, strongConfidence: 0.9 });
