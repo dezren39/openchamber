@@ -76,6 +76,11 @@ persisted, but OpenCode records every routing decision, attempt (exact error
 code and message, timings, token counts) and cooldown in its database for later
 analysis. A turn is never replayed after any answer or tool output has started.
 
+A pool can also retry a target before moving on (`attempts`), start the next target
+when the first is silent (`hedgeAfterMs`), cap a target's requests and tokens
+(`budgets`), and be tuned by the agent from its recorded history. These are
+OpenCode route options; see its configuration reference.
+
 Jev sorts prompts by reading the category names and descriptions, so the descriptions work as instructions. Say what belongs in the category and what doesn't. You can edit, turn off, remove or add categories, and restore a built-in one if you change your mind. Auto needs at least two categories turned on.
 
 ## What happens when you send
