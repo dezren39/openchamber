@@ -274,6 +274,26 @@ describe('jev endpoint', () => {
     const keyless = await capture('custom', { customEndpoint: { url, model: 'jev-latest' } });
     expect(keyless.headers.authorization).toBeUndefined();
   });
+
+  it('unwraps Cloudflare Workers AI result.answers envelopes as well as direct answers', async () => {
+    const cfPayload = {
+      result: {
+        model: 'clef-flash',
+        answers: { category: { choice: 'implement', confidence: 0.95 } },
+      },
+      success: true,
+    };
+    const fetchImpl = async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(cfPayload),
+    });
+    const result = await createJevClient({ fetchImpl }).ask(
+      { state: 'x', questions: {} },
+      { url: 'https://example.com/v1/systemone', model: 'clef-flash' },
+    );
+    expect(result.answers).toEqual({ category: { choice: 'implement', confidence: 0.95 } });
+  });
 });
 
 describe('normalizeCustomEndpointUrl', () => {

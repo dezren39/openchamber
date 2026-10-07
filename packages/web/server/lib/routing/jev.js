@@ -64,7 +64,12 @@ export const decidePermission = (answers, { threshold }) => {
   return { hold: score >= threshold, score, kind: parsed.data.kind?.choice ?? null };
 };
 
-const responseSchema = z.object({ answers: z.record(z.string(), z.unknown()) });
+const directAnswersSchema = z.object({ answers: z.record(z.string(), z.unknown()) });
+const wrappedAnswersSchema = z.object({
+  result: z.object({ answers: z.record(z.string(), z.unknown()) }),
+}).transform((val) => ({ answers: val.result.answers }));
+
+const responseSchema = z.union([directAnswersSchema, wrappedAnswersSchema]);
 
 export const createJevClient = ({ fetchImpl = fetch, timeoutMs = JEV_TIMEOUT_MS } = {}) => ({
   /**
