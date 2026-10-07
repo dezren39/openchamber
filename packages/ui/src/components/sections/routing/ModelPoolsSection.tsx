@@ -19,9 +19,13 @@ import { cn } from '@/lib/utils';
 import {
   AUTONOMY_LEVELS,
   fetchModelRoutes,
+  fetchRouteStats,
   saveModelRoutes,
   type AutonomyLevel,
+  type HedgeAccuracy,
   type ModelRoute,
+  type RouteErrorGroup,
+  type RouteTargetStats,
 } from '@/lib/routing/modelRoutesApi';
 import { PRESET_ROUTE_IDS, presetTargets, type PresetId } from '@/lib/routing/routePresets';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -178,6 +182,88 @@ const PoolRow: React.FC<{
   );
 };
 
+/** Live telemetry from OpenCode's routing history: per-target performance, exact errors and hedge wins. */
+const PoolTelemetry: React.FC = () => {
+  const { t } = useI18n();
+  const [stats, setStats] = React.useState<{
+    targets: RouteTargetStats[];
+    errors: RouteErrorGroup[];
+    hedges: HedgeAccuracy[];
+    windowHours?: number;
+  } | null>(null);
+  const [unavailable, setUnavailable] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetchRouteStats()
+      .then((state) => {
+        if (cancelled) return;
+        if (!state.available || !state.targets) {
+          setUnavailable(state.reason ?? 'unknown');
+          return;
+        }
+        setStats({ targets: state.targets, errors: state.errors ?? [], hedges: state.hedges ?? [], windowHours: state.windowHours });
+      })
+      .catch(() => {
+        if (!cancelled) setUnavailable('unreachable');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (unavailable) return null;
+  if (!stats) return <p className={SETTINGS_HELPER_CLASS}>{t('settings.pools.telemetry.loading')}</p>;
+  if (stats.targets.length === 0) return <p className={SETTINGS_HELPER_CLASS}>{t('settings.pools.telemetry.empty')}</p>;
+  const hedgeRate = (row: HedgeAccuracy) =>
+    row.hedges === 0 ? '—' : `${Math.round((row.wins / row.hedges) * 100)}% (${row.wins}/${row.hedges})`;
+  const hedgeFor = (providerID: string, modelID: string) =>
+    stats.hedges.find((row) => row.providerID === providerID && row.modelID === modelID);
+  return (
+    <div className="space-y-2">
+      <p className={SETTINGS_HELPER_CLASS}>
+        {t('settings.pools.telemetry.description', { hours: stats.windowHours ?? 24 })}
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left typography-meta">
+          <thead>
+            <tr className="text-muted-foreground">
+              <th className="py-1 pr-3 font-medium">{t('settings.pools.telemetry.target')}</th>
+              <th className="py-1 pr-3 font-medium">{t('settings.pools.telemetry.attempts')}</th>
+              <th className="py-1 pr-3 font-medium">{t('settings.pools.telemetry.failed')}</th>
+              <th className="py-1 pr-3 font-medium">{t('settings.pools.telemetry.firstToken')}</th>
+              <th className="py-1 pr-3 font-medium">{t('settings.pools.telemetry.hedgeWins')}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/40">
+            {stats.targets.map((row) => {
+              const hedge = hedgeFor(row.providerID, row.modelID);
+              return (
+                <tr key={`${row.providerID}/${row.modelID}`}>
+                  <td className="py-1 pr-3 text-foreground truncate">{`${row.providerID}/${row.modelID}`}</td>
+                  <td className="py-1 pr-3">{row.attempts}</td>
+                  <td className="py-1 pr-3">{`${row.failures}${row.timeouts > 0 ? ` (${row.timeouts} timeouts)` : ''}`}</td>
+                  <td className="py-1 pr-3">{row.avgFirstTokenMs === null ? '—' : `${row.avgFirstTokenMs}ms`}</td>
+                  <td className="py-1 pr-3">{hedge ? hedgeRate(hedge) : '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {stats.errors.length > 0 ? (
+        <div className="space-y-1">
+          {stats.errors.slice(0, 8).map((error, index) => (
+            <p key={index} className="typography-meta text-muted-foreground truncate">
+              {`${error.providerID}/${error.modelID} ×${error.count}: ${error.tag ?? 'unknown'}${error.status ? ` ${error.status}` : ''}${error.lastMessage ? ` — ${error.lastMessage}` : ''}`}
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 /** Model pools: beginner presets, per-pool autonomy, and an expert raw view. */
 export const ModelPoolsSection: React.FC = () => {
   const { t } = useI18n();
@@ -297,6 +383,7 @@ export const ModelPoolsSection: React.FC = () => {
                 </Button>
               </div>
             </SettingsFieldRow>
+            <PoolTelemetry />
             {recentDecisions.length > 0 ? (
               <div className="space-y-1">
                 <p className={SETTINGS_HELPER_CLASS}>{t('settings.pools.recentDecisions')}</p>

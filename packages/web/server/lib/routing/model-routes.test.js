@@ -99,7 +99,8 @@ describe('registerModelRouteRoutes', () => {
   it('PUT validates, writes and refreshes', async () => {
     const { app, routes } = makeApp();
     registerModelRouteRoutes(app, deps);
-    const [, , handler] = routes.put[0];
+    // [path, jsonParser, enterprise guard, handler]
+    const [, , , handler] = routes.put[0];
     const response = res();
     await handler({ body: { routes: { luna: { targets: ['openai/x'], autonomy: 'agent' } } } }, response);
     expect(response.out.body.routes).toEqual({ luna: { targets: ['openai/x'], autonomy: 'agent' } });
@@ -111,17 +112,25 @@ describe('registerModelRouteRoutes', () => {
   it('PUT rejects invalid routes with 400 and writes nothing', async () => {
     const { app, routes } = makeApp();
     registerModelRouteRoutes(app, deps);
-    const [, , handler] = routes.put[0];
+    const [, , , handler] = routes.put[0];
     const response = res();
     await handler({ body: { routes: { x: { targets: [] } } } }, response);
     expect(response.out.status).toBe(400);
     expect(deps.writeConfig).not.toHaveBeenCalled();
   });
 
+  it('PUT parses its own body so saves never see undefined', () => {
+    const { app, routes } = makeApp();
+    registerModelRouteRoutes(app, deps);
+    // Without a parser on this route the handler saw `req.body === undefined`
+    // and every save failed while the UI showed an optimistic pool.
+    expect(routes.put[0][1]?.name).toBe('jsonParser');
+  });
+
   it('refuses writes in enterprise mode', async () => {
     const { app, routes } = makeApp();
     registerModelRouteRoutes(app, { ...deps, isEnterpriseMode: () => true });
-    const [, guard] = routes.put[0];
+    const [, , guard] = routes.put[0];
     const response = res();
     let nextCalled = false;
     guard({}, response, () => void (nextCalled = true));

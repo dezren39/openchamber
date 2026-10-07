@@ -67,3 +67,56 @@ export const saveModelRoutes = async (routes: Record<string, ModelRoute>): Promi
   }
   return { ...modelRoutesStateSchema.parse(payload), available: true };
 };
+
+const routeTargetStatsSchema = z.object({
+  providerID: z.string(),
+  modelID: z.string(),
+  attempts: z.number(),
+  failures: z.number(),
+  timeouts: z.number(),
+  avgFirstTokenMs: z.number().nullable(),
+  avgTokensPerSecond: z.number().nullable(),
+  lastAttempt: z.number().nullable().optional(),
+});
+
+const routeErrorSchema = z.object({
+  providerID: z.string(),
+  modelID: z.string(),
+  tag: z.string().nullable(),
+  code: z.string().nullable(),
+  status: z.number().nullable(),
+  count: z.number(),
+  lastTime: z.number().nullable().optional(),
+  lastMessage: z.string().nullable(),
+});
+
+const hedgeAccuracySchema = z.object({
+  providerID: z.string(),
+  modelID: z.string(),
+  hedges: z.number(),
+  wins: z.number(),
+});
+
+const routeStatsSchema = z.object({
+  available: z.boolean(),
+  reason: z.string().optional(),
+  windowHours: z.number().optional(),
+  targets: z.array(routeTargetStatsSchema).optional(),
+  errors: z.array(routeErrorSchema).optional(),
+  hedges: z.array(hedgeAccuracySchema).optional(),
+});
+
+export type RouteTargetStats = z.infer<typeof routeTargetStatsSchema>;
+export type RouteErrorGroup = z.infer<typeof routeErrorSchema>;
+export type HedgeAccuracy = z.infer<typeof hedgeAccuracySchema>;
+export type RouteStats = z.infer<typeof routeStatsSchema>;
+
+export const fetchRouteStats = async (hours = 24): Promise<RouteStats> => {
+  const response = await runtimeFetch(`/api/model-routes/stats?hours=${hours}`);
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const failure = errorPayloadSchema.safeParse(payload);
+    throw new Error(failure.success ? failure.data.error : `Routing telemetry request failed (${response.status})`);
+  }
+  return routeStatsSchema.parse(payload);
+};

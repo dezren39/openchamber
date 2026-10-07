@@ -1,0 +1,152 @@
+/**
+ * Read-only telemetry for OpenCode model pools, straight from OpenCode's own
+ * `route_attempt` table. No prompts or responses are stored there (only exact
+ * error tags, codes, statuses, truncated messages, timings and token counts),
+ * so reading it needs no enterprise gate — though bodies are only present when
+ * a request opted in, and messages are truncated at the source.
+ *
+ * Anything missing (no database file, a stock OpenCode without the routing
+ * tables) reads as `{ available: false }`, never as an empty report.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+// The driver is imported lazily: a static import of `node:sqlite` would keep
+// the whole server from booting on a runtime that lacks it, and only this
+// endpoint needs SQLite. Node and bun >= 1.2 expose `node:sqlite`; older bun
+// releases only have `bun:sqlite`, so that is the fallback.
+const loadSqlite = async () => {
+  try {
+    const { DatabaseSync } = await import('node:sqlite');
+    return (dbPath) => new DatabaseSync(dbPath, { readOnly: true });
+  } catch {
+    // fall through to bun:sqlite
+  }
+  try {
+    const { Database } = await import('bun:sqlite');
+    return (dbPath) => new Database(dbPath, { readonly: true });
+  } catch {
+    throw Object.assign(new Error('Routing telemetry needs a runtime with node:sqlite or bun:sqlite'), {
+      code: 'no-sqlite',
+      status: 503,
+    });
+  }
+};
+
+const OPENCODE_DATA_DIR = path.join(os.homedir(), '.local', 'share', 'opencode');
+
+/** Where OpenCode keeps its database: `OPENCODE_DB` when set, else `opencode.db`. */
+export const resolveOpenCodeDbPath = (env = process.env) => {
+  const configured = (env.OPENCODE_DB ?? '').trim();
+  if (configured && configured !== ':memory:') return path.resolve(OPENCODE_DATA_DIR, configured);
+  return path.join(OPENCODE_DATA_DIR, 'opencode.db');
+};
+
+const hasRouteTables = (db) => {
+  const rows = db
+    .prepare("select name from sqlite_master where type = 'table' and name in ('route_attempt', 'route_decision')")
+    .all();
+  return rows.some((row) => row.name === 'route_attempt');
+};
+
+const num = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+/**
+ * Aggregates over the last `hours` of attempts: per-target counts and
+ * latencies, failures grouped by exact error, and hedge win rates from the
+ * pairs of `hedged` rows that share an assistant message. Throws with
+ * `status`/`code` for missing database (`no-database`) or stock OpenCode
+ * without the routing tables (`no-tables`).
+ */
+export const queryRouteStats = async (dbPath, { hours = 24, now = Date.now() } = {}) => {
+  const windowHours = Math.min(336, Math.max(0.1, Number(hours) || 24));
+  if (!fs.existsSync(dbPath)) {
+    throw Object.assign(new Error(`OpenCode database not found at ${dbPath}`), { code: 'no-database', status: 404 });
+  }
+  const openDatabase = await loadSqlite();
+  const db = openDatabase(dbPath);
+  try {
+    if (!hasRouteTables(db)) {
+      throw Object.assign(new Error('This OpenCode build does not record routing telemetry'), {
+        code: 'no-tables',
+        status: 404,
+      });
+    }
+    const since = now - windowHours * 3_600_000;
+    const targets = db
+      .prepare(
+        `select provider_id as providerID, model_id as modelID,
+          count(*) as attempts,
+          sum(case when outcome in ('failure','timeout') then 1 else 0 end) as failures,
+          sum(case when outcome = 'timeout' then 1 else 0 end) as timeouts,
+          avg(first_token_ms) as avgFirstTokenMs,
+          avg(tokens_per_second) as avgTokensPerSecond,
+          max(time_started) as lastAttempt
+        from route_attempt where time_started >= ? group by provider_id, model_id order by attempts desc`,
+      )
+      .all(since);
+    const errors = db
+      .prepare(
+        `select provider_id as providerID, model_id as modelID,
+          error_tag as tag, error_code as code, error_status as status,
+          count(*) as count, max(time_started) as lastTime,
+          (select e.error_message from route_attempt e
+            where e.provider_id = route_attempt.provider_id and e.model_id = route_attempt.model_id
+              and e.error_tag is route_attempt.error_tag
+              and e.error_code is route_attempt.error_code
+              and e.error_status is route_attempt.error_status
+            order by e.time_started desc limit 1) as lastMessage
+        from route_attempt
+        where time_started >= ? and outcome != 'success'
+        group by provider_id, model_id, error_tag, error_code, error_status
+        order by count desc limit 50`,
+      )
+      .all(since);
+    const hedges = db
+      .prepare(
+        `select provider_id as providerID, model_id as modelID,
+          count(*) as hedges,
+          sum(case when outcome = 'success' then 1 else 0 end) as wins
+        from route_attempt
+        where time_started >= ? and hedged is true and assistant_message_id is not null
+          and exists (select 1 from route_attempt rival
+            where rival.assistant_message_id = route_attempt.assistant_message_id
+              and rival.hedged is true
+              and (rival.provider_id != route_attempt.provider_id or rival.model_id != route_attempt.model_id))
+        group by provider_id, model_id`,
+      )
+      .all(since);
+    return {
+      available: true,
+      windowHours,
+      targets: targets.map((row) => ({
+        ...row,
+        avgFirstTokenMs: num(row.avgFirstTokenMs) === null ? null : Math.round(num(row.avgFirstTokenMs)),
+        avgTokensPerSecond: num(row.avgTokensPerSecond),
+      })),
+      errors: errors.map((row) => ({
+        ...row,
+        lastMessage: typeof row.lastMessage === 'string' ? row.lastMessage.slice(0, 300) : null,
+      })),
+      hedges,
+    };
+  } finally {
+    db.close();
+  }
+};
+
+export const registerModelRouteStatsRoutes = (app, dependencies = {}) => {
+  const { resolveDbPath = resolveOpenCodeDbPath } = dependencies;
+
+  app.get('/api/model-routes/stats', async (req, res) => {
+    try {
+      res.json(await queryRouteStats(resolveDbPath(), { hours: req.query?.hours }));
+    } catch (error) {
+      if (error?.code === 'no-database' || error?.code === 'no-tables' || error?.code === 'no-sqlite') {
+        return res.json({ available: false, reason: error.code });
+      }
+      res.status(500).json({ error: error?.message ?? 'Failed to read routing telemetry' });
+    }
+  });
+};
