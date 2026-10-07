@@ -34,6 +34,7 @@ import { modelVariantNames } from '@/lib/modelVariants';
 import { isAutoModel } from '@/lib/routing/autoModel';
 import { useRoutingStore } from '@/stores/useRoutingStore';
 import { JevAccessNote } from '@/components/sections/classification/JevAccessNote';
+import { ModelPoolsSection } from '@/components/sections/routing/ModelPoolsSection';
 
 const DEFAULT_VARIANT_VALUE = '__default__';
 const SAVE_DEBOUNCE_MS = 500;
@@ -500,6 +501,8 @@ export const RoutingPage: React.FC = () => {
               ) : null}
             </div>
           </SettingsSection>
+
+          <ModelPoolsSection />
 
           <SettingsSection title={t('settings.routing.categories.title')}>
             <div className={SETTINGS_FIELDS_STACK_CLASS}>
