@@ -188,12 +188,16 @@ export const ModelPoolsSection: React.FC = () => {
   const [newId, setNewId] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const lastSavedRef = React.useRef<Record<string, ModelRoute> | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
     fetchModelRoutes()
       .then((state) => {
-        if (!cancelled && state.available) setRoutes(state.routes);
+        if (!cancelled && state.available) {
+          lastSavedRef.current = state.routes;
+          setRoutes(state.routes);
+        }
       })
       .catch((failure) => {
         if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
@@ -208,9 +212,13 @@ export const ModelPoolsSection: React.FC = () => {
     setSaving(true);
     try {
       const state = await saveModelRoutes(next);
+      lastSavedRef.current = state.routes;
       setRoutes(state.routes);
       setError(null);
     } catch (failure) {
+      // A failed save rolls back to the last server-confirmed state so the
+      // list never shows pools that were not written.
+      if (lastSavedRef.current) setRoutes(lastSavedRef.current);
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setSaving(false);

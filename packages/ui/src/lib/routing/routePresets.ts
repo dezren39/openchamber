@@ -31,10 +31,18 @@ const baseCost = (model: Model): number => {
   return entry.input + entry.output;
 };
 
+// Pools answer chat prompts, so only models that take text in and out are eligible;
+// image and video models would fail every send they receive.
 const enabledModels = (providers: Array<Provider & { models: Model[] }>): CatalogModel[] =>
   providers.flatMap((provider) =>
     (provider.models ?? [])
-      .filter((model) => model.enabled !== false && model.status !== 'deprecated')
+      .filter(
+        (model) =>
+          model.enabled !== false &&
+          model.status !== 'deprecated' &&
+          model.capabilities.input.includes('text') &&
+          model.capabilities.output.includes('text'),
+      )
       .map((model) => ({ providerID: provider.id, modelID: model.id, model })),
   );
 

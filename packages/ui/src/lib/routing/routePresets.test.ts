@@ -2,13 +2,19 @@ import { describe, expect, test } from 'bun:test';
 import { cheapestTargets, fastestTargets, sturdiestTargets } from './routePresets';
 import type { Model, Provider } from '@/lib/opencode/model';
 
-const model = (id: string, cost: number, context: number, extra: Partial<Model> = {}): Model =>
+const model = (
+  id: string,
+  cost: number,
+  context: number,
+  extra: Partial<Model> = {},
+  capabilities = { tools: true, input: ['text'], output: ['text'] },
+): Model =>
   ({
     id,
     modelID: id,
     providerID: 'p',
     name: id,
-    capabilities: { tools: true, input: ['text'], output: ['text'] },
+    capabilities,
     variants: [],
     time: { released: 0 },
     cost: [{ input: cost, output: cost, cache: { read: 0, write: 0 } }],
@@ -56,5 +62,19 @@ describe('sturdiestTargets', () => {
 
   test('returns [] when every model is single-provider', () => {
     expect(sturdiestTargets(providers([['a', [model('solo', 1, 100000)]]]))).toEqual([]);
+  });
+});
+
+describe('text-only eligibility', () => {
+  test('image and video models are never pool targets', () => {
+    const image = model('img', 0.1, 1000, {}, { tools: false, input: ['image'], output: ['image'] });
+    const video = model('vid', 0.1, 1000, {}, { tools: false, input: ['video'], output: ['video'] });
+    const text = model('txt', 5, 100000);
+    const catalog = [{ id: 'a', models: [image, video, text] }] as unknown as Parameters<
+      typeof cheapestTargets
+    >[0];
+    expect(cheapestTargets(catalog)).toEqual(['a/txt']);
+    expect(fastestTargets(catalog)).toEqual(['a/txt']);
+    expect(sturdiestTargets([{ id: 'a', models: [image] }, { id: 'b', models: [image] }] as never)).toEqual([]);
   });
 });

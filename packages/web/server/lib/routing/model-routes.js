@@ -1,3 +1,5 @@
+import express from 'express';
+
 /**
  * Model pools for OpenCode's `experimental.model_routes`: ordered provider/model
  * targets behind one `opencode-route/<id>` name, each with its own autonomy level.
@@ -89,7 +91,7 @@ export const registerModelRouteRoutes = (app, dependencies) => {
     }
   });
 
-  app.put("/api/model-routes", refuseInEnterpriseMode, async (req, res) => {
+  app.put("/api/model-routes", express.json({ limit: "256kb" }), refuseInEnterpriseMode, async (req, res) => {
     try {
       const routes = req.body?.routes;
       const problem = validateModelRoutes(routes);
