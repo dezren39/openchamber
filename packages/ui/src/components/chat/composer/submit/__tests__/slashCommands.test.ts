@@ -45,6 +45,38 @@ describe('parseSlashCommand', () => {
     });
 });
 
+describe('/route', () => {
+    test('runs as a local action with the sentence as its argument', () => {
+        expect(planLocalSlashCommand('/route avoid OpenAI for an hour', 'normal', false, false))
+            .toEqual({
+                command: { name: 'route', argument: 'avoid OpenAI for an hour' },
+                kind: 'action',
+                attachedContext: 'none',
+            });
+    });
+
+    test('works without a session', () => {
+        expect(planLocalSlashCommand('/route prefer Claude', 'normal', false, false)?.kind).toBe('action');
+        expect(planLocalSlashCommand('/route prefer Claude', 'normal', false, true)?.kind).toBe('action');
+    });
+
+    test('keeps attached context in the composer, like the other action commands', () => {
+        expect(planLocalSlashCommand('/route prefer Claude', 'normal', true, true)?.attachedContext).toBe('retain');
+    });
+
+    test('a bare command is planned with an empty argument for the composer to explain', () => {
+        expect(planLocalSlashCommand('/route', 'normal', false, true)).toEqual({
+            command: { name: 'route', argument: '' },
+            kind: 'action',
+            attachedContext: 'none',
+        });
+    });
+
+    test('shell mode does not treat it as a command', () => {
+        expect(planLocalSlashCommand('/route prefer Claude', 'shell', false, true)).toBeNull();
+    });
+});
+
 describe('findMagicPromptCommand', () => {
     test('finds a registered command', () => {
         expect(findMagicPromptCommand('explore')?.name).toBe('explore');

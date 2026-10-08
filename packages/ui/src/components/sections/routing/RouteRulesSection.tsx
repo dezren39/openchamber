@@ -12,10 +12,10 @@ import {
   answerRouteQuestion,
   fetchRouteRules,
   interpretRoute,
+  routingContextFromProviders,
   undoRouteRule,
   type InterpretResult,
   type RouteRule,
-  type RoutingContext,
 } from '@/lib/routing/routeRulesApi';
 import { useConfigStore } from '@/stores/useConfigStore';
 
@@ -37,13 +37,7 @@ export const RouteRulesSection: React.FC = () => {
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
-  const context = React.useMemo<RoutingContext>(
-    () => ({
-      providers: providers.map((provider) => provider.id),
-      models: providers.flatMap((provider) => provider.models.map((model) => ({ id: model.id, providerID: provider.id }))),
-    }),
-    [providers],
-  );
+  const context = React.useMemo(() => routingContextFromProviders(providers), [providers]);
 
   React.useEffect(() => {
     let cancelled = false;

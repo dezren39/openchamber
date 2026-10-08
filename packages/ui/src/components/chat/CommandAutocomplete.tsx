@@ -37,7 +37,7 @@ export interface CommandInfo {
 // these names is dropped before it reaches the list.
 const LOCAL_COMMAND_NAMES = [
   'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'fork', 'btw', 'summary', 'workspace-review', 'handoff-review',
-  'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
+  'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore', 'route',
 ];
 
 export interface CommandAutocompleteHandle {
@@ -192,6 +192,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             ? [{ id: 'openchamber:workspace-review', name: 'workspace-review', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.workspaceReviewDescription'), isOpenChamber: true }]
             : []
           ),
+          { id: 'openchamber:route', name: 'route', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.routeDescription'), isOpenChamber: true },
           ...(canUseReviewHandoffFlow
             ? [{ id: 'openchamber:handoff-review', name: 'handoff-review', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.handoffReviewDescription'), isOpenChamber: true }]
             : []
@@ -282,6 +283,7 @@ export const CommandAutocomplete = React.forwardRef<CommandAutocompleteHandle, C
             ? [{ id: 'openchamber:workspace-review', name: 'workspace-review', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.workspaceReviewDescription'), isOpenChamber: true }]
             : []
           ),
+          { id: 'openchamber:route', name: 'route', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.routeDescription'), isOpenChamber: true },
           ...(canUseReviewHandoffFlow
             ? [{ id: 'openchamber:handoff-review', name: 'handoff-review', source: 'openchamber' as const, description: t('chat.commandAutocomplete.command.handoffReviewDescription'), isOpenChamber: true }]
             : []

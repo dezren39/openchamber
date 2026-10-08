@@ -3,6 +3,7 @@ import { formatChangeRequestReference } from '@/lib/source-control/identity';
 import { ComposerDictation } from '@/components/dictation/ComposerDictation';
 // sessionStore removed — currentSessionId comes from useSessionUIStore
 import { useConfigStore } from '@/stores/useConfigStore';
+import { applyChatRoute } from '@/lib/routing/chatRoute';
 import { useUIStore } from '@/stores/useUIStore';
 import { isServerOwnedMessageQueue, createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type QueuedContextPart, type QueuedMessage } from '@/stores/messageQueueStore';
 import { useAutoReviewStore } from '@/stores/useAutoReviewStore';
@@ -806,7 +807,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const availableSkills = useSkillsStore((s) => selectSkillsForDirectory(s, currentDirectory));
     const knownSlashNames = React.useMemo(() => {
         const names = new Set<string>([
-            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'fork', 'btw', 'summary', 'workspace-review', 'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore',
+            'init', 'review', 'undo', 'redo', 'timeline', 'compact', 'fork', 'btw', 'summary', 'workspace-review', 'plan-feature', 'craft-goal', 'schedule-task', 'catch-up', 'debug', 'weigh', 'explore', 'route',
         ]);
         if (!isMobile && !isVSCodeRuntime()) names.add('handoff-review');
         for (const command of availableCommands) names.add(command.name.toLowerCase());
@@ -1700,6 +1701,35 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 void handleQueueMessage();
                 return;
             }
+        }
+
+        // Routing sentences change settings, so they apply with or without a session.
+        if (commandPlan?.kind === 'action' && commandPlan.command.name === 'route') {
+            const sentence = commandPlan.command.argument;
+            if (!sentence) {
+                toast.info(t('chat.chatInput.toast.routeUsage'));
+                return;
+            }
+            setMessage('');
+            confirmedMentionsRef.current.clear();
+            persistDraftImmediately(chatDraftIdentity, '');
+            messageHistory.reset();
+            if (!isBtwActive) setExpandedInput(false);
+            if (isMobile) composerRef.current?.blur();
+            try {
+                const outcome = await applyChatRoute(sentence, useConfigStore.getState().providers);
+                if (outcome.status === 'applied') {
+                    toast.success(t('chat.chatInput.toast.routeApplied', { summary: outcome.summary }));
+                } else if (outcome.status === 'needs-choice') {
+                    toast.info(t('chat.chatInput.toast.routeNeedsChoice'));
+                } else {
+                    toast.error(t('chat.chatInput.toast.routeUnknown', { reason: outcome.reason }));
+                }
+            } catch (error) {
+                restoreComposerText();
+                toast.error(getSubmitErrorMessage(error, t('chat.chatInput.toast.routeFailed')));
+            }
+            return;
         }
 
         // Action commands change session or UI state and send nothing. The

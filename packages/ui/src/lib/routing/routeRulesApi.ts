@@ -80,6 +80,13 @@ export interface RoutingContext {
   models: Array<{ id: string; providerID: string }>;
 }
 
+export const routingContextFromProviders = (
+  providers: ReadonlyArray<{ id: string; models: ReadonlyArray<{ id: string }> }>,
+): RoutingContext => ({
+  providers: providers.map((provider) => provider.id),
+  models: providers.flatMap((provider) => provider.models.map((model) => ({ id: model.id, providerID: provider.id }))),
+});
+
 const errorPayloadSchema = z.object({ error: z.string().min(1) });
 
 const call = async <T extends z.ZodType>(url: string, schema: T, init?: RequestInit): Promise<z.infer<T>> => {

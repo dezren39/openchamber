@@ -184,6 +184,15 @@ export function planLocalSlashCommand(
     const command = parseSlashCommand(text);
     if (!command) return null;
 
+    // Routing changes live in settings, so they run with or without a session.
+    if (command.name === 'route') {
+        return {
+            command,
+            kind: 'action',
+            attachedContext: hasAttachedContext ? 'retain' : 'none',
+        };
+    }
+
     if (LOCAL_ACTION_COMMANDS.has(command.name)) {
         if (!hasSession) return null;
 
