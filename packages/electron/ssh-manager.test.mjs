@@ -10,6 +10,19 @@ import { execFileSync } from 'node:child_process';
 
 import { ElectronSshManager } from './ssh-manager.mjs';
 
+// The remote probes call coreutils, which some hosts (NixOS) keep outside /usr/bin and /bin.
+const coreutilsDir = (home) => {
+  const dir = path.join(home, 'coreutils');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const name of ['head', 'sed', 'sort', 'tail', 'ls', 'dirname', 'mkdir']) {
+    const source = (process.env.PATH ?? '').split(path.delimiter)
+      .map((entry) => path.join(entry, name))
+      .find((file) => fs.existsSync(file));
+    if (source) fs.symlinkSync(source, path.join(dir, name));
+  }
+  return dir;
+};
+
 const servers = [];
 const tempDirs = [];
 
@@ -76,7 +89,7 @@ printf '4321\\n'`);
       executable(path.join(home, '.openchamber', 'npm-global', 'bin', 'openchamber'), 'printf "0.9.0\\n"');
       const tools = path.join(home, 'tools');
       executable(path.join(tools, 'npm'), 'exit 88');
-      const env = { HOME: home, PATH: `${tools}:/usr/bin:/bin` };
+      const env = { HOME: home, PATH: `${tools}:${coreutilsDir(home)}:/usr/bin:/bin` };
       if (scenario !== 'unset XDG') env.XDG_CACHE_HOME = xdg;
       const manager = new ElectronSshManager({
         settingsFilePath: path.join(home, 'settings.json'),
@@ -419,7 +432,7 @@ printf '4321\\n'`);
       executable(path.join(bin, 'node'), 'exit 0');
       executable(path.join(bin, 'npm'), `printf '%s' "$PATH" > "$HOME/npm-path"; printf '${version}' > "$HOME/npm-version"`);
     }
-    const env = { HOME: home, PATH: '/usr/bin:/bin' };
+    const env = { HOME: home, PATH: `${coreutilsDir(home)}:/usr/bin:/bin` };
     const manager = new ElectronSshManager({
       settingsFilePath: path.join(home, 'settings.json'),
       appVersion: '1.2.3',
@@ -453,7 +466,7 @@ printf '4321\\n'`);
 if [ "$1" = "--version" ]; then printf '1.2.3\\n'; exit 0; fi
 printf '%s' "$OPENCODE_BINARY" > "$HOME/launch-opencode"
 printf '4321\\n'`);
-    const env = { HOME: home, PATH: '/usr/bin:/bin' };
+    const env = { HOME: home, PATH: `${coreutilsDir(home)}:/usr/bin:/bin` };
     const manager = new ElectronSshManager({
       settingsFilePath: path.join(home, 'settings.json'),
       appVersion: '1.2.3',

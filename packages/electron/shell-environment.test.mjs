@@ -136,7 +136,7 @@ const warmExec = (shell, args) => new Promise(resolve => {
 });
 
 test('real slow shell leaves the event loop responsive and stdin closed', { skip: process.platform === 'win32' }, async t => {
-  const shell = await withShell(t, 'read ignored && exit 1\n/bin/sleep 0.2\nprintf "READY=yes\\0"\n');
+  const shell = await withShell(t, 'read ignored && exit 1\nsleep 0.2\nprintf "READY=yes\\0"\n');
   const load = createShellEnvironmentLoader({ env: { SHELL: shell } });
   let finished = false;
   const pending = load().then(result => { finished = true; return result; });
@@ -146,7 +146,7 @@ test('real slow shell leaves the event loop responsive and stdin closed', { skip
 });
 
 test('real probe timeout kills the attempt and falls back', { skip: process.platform === 'win32' }, async t => {
-  const shell = await withShell(t, 'if [ "$1" = "-il" ]; then printf "%s" "$$" > "$0.pid"; exec /bin/sleep 10; fi\nprintf "FALLBACK=yes\\0"\n');
+  const shell = await withShell(t, 'if [ "$1" = "-il" ]; then printf "%s" "$$" > "$0.pid"; exec sleep 10; fi\nprintf "FALLBACK=yes\\0"\n');
   await warmExec(shell, ['-l', '-c', 'env -0']);
   const load = createShellEnvironmentLoader({ env: { SHELL: shell }, timeoutMs: 100 });
   assert.deepEqual(await load(), { FALLBACK: 'yes' });
@@ -184,7 +184,7 @@ test('cancellation before startup launches no shell', async () => {
 });
 
 test('quit cancels a real in-flight shell, waits for exit and skips fallback', { skip: process.platform === 'win32' }, async t => {
-  const shell = await withShell(t, 'printf "%s" "$$" > "$0.pid"\nexec /bin/sleep 10\n');
+  const shell = await withShell(t, 'printf "%s" "$$" > "$0.pid"\nexec sleep 10\n');
   const controller = new AbortController();
   const load = createShellEnvironmentLoader({ env: { SHELL: shell }, signal: controller.signal });
   const pending = load();
