@@ -20,13 +20,17 @@ import {
   AUTONOMY_LEVELS,
   fetchModelRoutes,
   fetchRouteStats,
+  saveModelRouteTuning,
   saveModelRoutes,
   type AutonomyLevel,
   type HedgeAccuracy,
   type ModelRoute,
+  type ModelRouteTuning,
   type RouteErrorGroup,
   type RouteTargetStats,
 } from '@/lib/routing/modelRoutesApi';
+import { PoolAdvancedFields } from '@/components/sections/routing/PoolAdvancedFields';
+import { RouteTuningFields } from '@/components/sections/routing/RouteTuningFields';
 import { fetchWaitEstimate, type WaitEstimate } from '@/lib/routing/routeRulesApi';
 import { PRESET_ROUTE_IDS, presetTargets, type PresetId } from '@/lib/routing/routePresets';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -105,6 +109,7 @@ const PoolRow: React.FC<{
   const [patternUntil, setPatternUntil] = React.useState('');
   const [jsonText, setJsonText] = React.useState<string | null>(null);
   const [jsonError, setJsonError] = React.useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
 
   const targets = route.targets ?? [];
   const addTarget = () => {
@@ -251,6 +256,12 @@ const PoolRow: React.FC<{
               {t('settings.pools.addTarget')}
             </Button>
           </div>
+          <div className="space-y-2">
+            <Button size="sm" variant="ghost" onClick={() => setAdvancedOpen((open) => !open)} aria-expanded={advancedOpen}>
+              {advancedOpen ? t('settings.pools.advanced.hide') : t('settings.pools.advanced.show')}
+            </Button>
+            {advancedOpen ? <PoolAdvancedFields route={route} onChange={onChange} /> : null}
+          </div>
           <SettingsStackedField label={t('settings.pools.expertJson')} info={t('settings.pools.expertJsonInfo')} controlClassName="max-w-none">
             <Textarea
               value={jsonText ?? JSON.stringify(route, null, 2)}
@@ -366,6 +377,7 @@ export const ModelPoolsSection: React.FC = () => {
   const providers = useConfigStore((state) => state.providers);
   const decisions = useRoutingStore((state) => state.decisions);
   const [routes, setRoutes] = React.useState<Record<string, ModelRoute> | null>(null);
+  const [tuning, setTuning] = React.useState<ModelRouteTuning | null>(null);
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const [newId, setNewId] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
@@ -379,6 +391,7 @@ export const ModelPoolsSection: React.FC = () => {
         if (!cancelled && state.available) {
           lastSavedRef.current = state.routes;
           setRoutes(state.routes);
+          setTuning(state.tuning ?? null);
         }
       })
       .catch((failure) => {
@@ -404,6 +417,17 @@ export const ModelPoolsSection: React.FC = () => {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setSaving(false);
+    }
+  }, []);
+
+  const saveTuning = React.useCallback(async (next: ModelRouteTuning | null) => {
+    setTuning(next);
+    try {
+      const state = await saveModelRouteTuning(next);
+      setTuning(state.tuning ?? null);
+      setError(null);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
     }
   }, []);
 
@@ -479,6 +503,10 @@ export const ModelPoolsSection: React.FC = () => {
                 </Button>
               </div>
             </SettingsFieldRow>
+            <div className="space-y-2">
+              <p className={SETTINGS_HELPER_CLASS}>{t('settings.pools.tuning.title')}</p>
+              <RouteTuningFields tuning={tuning} onSave={(next) => void saveTuning(next)} />
+            </div>
             <PoolTelemetry />
             {recentDecisions.length > 0 ? (
               <div className="space-y-1">

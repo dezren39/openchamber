@@ -774,6 +774,22 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => !ctx.isVSCode && ctx.routingAvailable && !ctx.jevBlockedByEnterprise,
   },
   {
+    id: 'routing.pools-advanced',
+    page: 'routing',
+    titleKey: 'settings.pools.advanced.selection',
+    descriptionKey: 'settings.pools.advanced.selectionInfo',
+    keywords: ['pool', 'selection', 'round robin', 'weighted', 'attempts', 'hedge', 'health', 'cooldown', 'budget', 'quota', 'soft limit', 'routing'],
+    isAvailable: (ctx) => !ctx.isVSCode && ctx.routingAvailable && !ctx.jevBlockedByEnterprise,
+  },
+  {
+    id: 'routing.pools-tuning',
+    page: 'routing',
+    titleKey: 'settings.pools.tuning.enabled',
+    descriptionKey: 'settings.pools.tuning.info',
+    keywords: ['automatic review', 'tuning', 'review', 'history', 'schedule', 'routing'],
+    isAvailable: (ctx) => !ctx.isVSCode && ctx.routingAvailable && !ctx.jevBlockedByEnterprise,
+  },
+  {
     id: 'git.identities',
     page: 'git',
     titleKey: 'settings.gitIdentities.page.section.title',

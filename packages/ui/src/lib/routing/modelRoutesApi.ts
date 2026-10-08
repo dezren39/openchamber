@@ -20,23 +20,58 @@ const targetSchema = z.union([
   }),
 ]);
 
-const modelRouteSchema = z.object({
-  name: z.string().optional(),
-  targets: z.array(targetSchema),
-  autonomy: z.enum(AUTONOMY_LEVELS).optional(),
-  selection: z.enum(['ordered', 'round-robin', 'weighted']).optional(),
-  weights: z.record(z.string(), z.number()).optional(),
-  attempts: z.number().optional(),
-  hedgeAfterMs: z.number().optional(),
-  health: z.record(z.string(), z.unknown()).optional(),
-  budgets: z.record(z.string(), z.unknown()).optional(),
-});
+const healthSchema = z
+  .object({
+    firstTokenTimeoutMs: z.union([z.number(), z.literal(false)]).optional(),
+    maxResponseTimeMs: z.number().optional(),
+    minOutputTokensPerSecond: z.number().optional(),
+    sampleWindow: z.number().optional(),
+    slowThreshold: z.number().optional(),
+    cooldownMs: z.number().optional(),
+    quotaCooldownMs: z.number().optional(),
+  })
+  .passthrough();
+
+const budgetSchema = z
+  .object({
+    requestsPerMinute: z.number().optional(),
+    requestsPerDay: z.number().optional(),
+    tokensPerMinute: z.number().optional(),
+    tokensPerDay: z.number().optional(),
+    softLimit: z.number().optional(),
+  })
+  .passthrough();
+
+const modelRouteSchema = z
+  .object({
+    name: z.string().optional(),
+    targets: z.array(targetSchema),
+    autonomy: z.enum(AUTONOMY_LEVELS).optional(),
+    selection: z.enum(['ordered', 'round-robin', 'weighted']).optional(),
+    weights: z.record(z.string(), z.number()).optional(),
+    attempts: z.number().optional(),
+    hedgeAfterMs: z.number().optional(),
+    health: healthSchema.optional(),
+    budgets: z.record(z.string(), budgetSchema).optional(),
+  })
+  .passthrough();
 
 export type ModelRoute = z.infer<typeof modelRouteSchema>;
 export type ModelRouteTarget = z.infer<typeof targetSchema>;
 
+const modelRouteTuningSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    intervalMinutes: z.number().optional(),
+    windowHours: z.number().optional(),
+  })
+  .passthrough();
+
+export type ModelRouteTuning = z.infer<typeof modelRouteTuningSchema>;
+
 const modelRoutesStateSchema = z.object({
   routes: z.record(z.string(), modelRouteSchema),
+  tuning: modelRouteTuningSchema.nullable().optional(),
   path: z.string().optional(),
 });
 
@@ -55,11 +90,11 @@ export const fetchModelRoutes = async (): Promise<ModelRoutesState> => {
   return { ...modelRoutesStateSchema.parse(payload), available: true };
 };
 
-export const saveModelRoutes = async (routes: Record<string, ModelRoute>): Promise<ModelRoutesState> => {
+const putModelRoutes = async (body: { routes?: Record<string, ModelRoute>; tuning?: ModelRouteTuning | null }): Promise<ModelRoutesState> => {
   const response = await runtimeFetch('/api/model-routes', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ routes }),
+    body: JSON.stringify(body),
   });
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
@@ -68,6 +103,11 @@ export const saveModelRoutes = async (routes: Record<string, ModelRoute>): Promi
   }
   return { ...modelRoutesStateSchema.parse(payload), available: true };
 };
+
+export const saveModelRoutes = (routes: Record<string, ModelRoute>): Promise<ModelRoutesState> => putModelRoutes({ routes });
+
+/** Saves the automatic-review settings; null removes them so OpenCode's defaults apply. */
+export const saveModelRouteTuning = (tuning: ModelRouteTuning | null): Promise<ModelRoutesState> => putModelRoutes({ tuning });
 
 const routeTargetStatsSchema = z.object({
   providerID: z.string(),

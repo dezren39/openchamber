@@ -4,6 +4,7 @@ import {
   readModelRoutes,
   registerModelRouteRoutes,
   validateModelRoute,
+  validateModelRouteTuning,
   validateModelRoutes,
 } from './model-routes.js';
 
@@ -35,6 +36,57 @@ describe('validateModelRoute', () => {
   it('rejects a non-object map', () => {
     expect(validateModelRoutes(null)).toMatch(/must be an object/);
     expect(validateModelRoutes({ ok: { targets: ['a/b'] } })).toBeNull();
+  });
+});
+
+describe('validateModelRoute advanced fields', () => {
+  const base = { targets: ['a/b'] };
+
+  it('accepts every field the OpenCode schema defines', () => {
+    expect(
+      validateModelRoute('full', {
+        ...base,
+        attempts: 2,
+        hedgeAfterMs: 1500,
+        selection: 'round-robin',
+        health: {
+          firstTokenTimeoutMs: false,
+          maxResponseTimeMs: 60000,
+          minOutputTokensPerSecond: 12.5,
+          sampleWindow: 5,
+          slowThreshold: 3,
+          cooldownMs: 60000,
+          quotaCooldownMs: 900000,
+        },
+        budgets: { 'a/b': { requestsPerMinute: 10, tokensPerDay: 1000000, softLimit: 0.9 } },
+      }),
+    ).toBeNull();
+  });
+
+  it('rejects out-of-range attempts, hedge and health values', () => {
+    expect(validateModelRoute('x', { ...base, attempts: 0 })).toMatch(/attempts/);
+    expect(validateModelRoute('x', { ...base, attempts: 51 })).toMatch(/attempts/);
+    expect(validateModelRoute('x', { ...base, hedgeAfterMs: 0 })).toMatch(/hedgeAfterMs/);
+    expect(validateModelRoute('x', { ...base, health: { cooldownMs: 1.5 } })).toMatch(/health\.cooldownMs/);
+    expect(validateModelRoute('x', { ...base, health: { firstTokenTimeoutMs: 0 } })).toMatch(/firstTokenTimeoutMs/);
+    expect(validateModelRoute('x', { ...base, health: { minOutputTokensPerSecond: 0 } })).toMatch(/minOutputTokensPerSecond/);
+  });
+
+  it('rejects malformed budgets', () => {
+    expect(validateModelRoute('x', { ...base, budgets: { 'a/b': { requestsPerDay: -5 } } })).toMatch(/requestsPerDay/);
+    expect(validateModelRoute('x', { ...base, budgets: { 'a/b': { softLimit: 1.5 } } })).toMatch(/softLimit/);
+    expect(validateModelRoute('x', { ...base, budgets: ['a/b'] })).toMatch(/budgets/);
+  });
+});
+
+describe('validateModelRouteTuning', () => {
+  it('accepts partial tuning and rejects out-of-range values', () => {
+    expect(validateModelRouteTuning({})).toBeNull();
+    expect(validateModelRouteTuning({ enabled: true, intervalMinutes: 1440, windowHours: 336 })).toBeNull();
+    expect(validateModelRouteTuning({ enabled: 'yes' })).toMatch(/enabled/);
+    expect(validateModelRouteTuning({ intervalMinutes: 1441 })).toMatch(/intervalMinutes/);
+    expect(validateModelRouteTuning({ windowHours: 0 })).toMatch(/windowHours/);
+    expect(validateModelRouteTuning(null)).toMatch(/must be an object/);
   });
 });
 
@@ -93,7 +145,39 @@ describe('registerModelRouteRoutes', () => {
     registerModelRouteRoutes(app, deps);
     const response = res();
     await routes.get[0][1]({}, response);
-    expect(response.out.body).toEqual({ routes: { old: { targets: ['a/b'] } }, path: '/u/opencode.json' });
+    expect(response.out.body).toEqual({ routes: { old: { targets: ['a/b'] } }, tuning: null, path: '/u/opencode.json' });
+  });
+
+  it('PUT writes tuning alone and removes it when null', async () => {
+    const { app, routes } = makeApp();
+    registerModelRouteRoutes(app, deps);
+    const [, , , handler] = routes.put[0];
+    const saved = res();
+    await handler({ body: { tuning: { enabled: true, intervalMinutes: 30 } } }, saved);
+    expect(targetConfig.experimental.model_routes).toEqual({ old: { targets: ['a/b'] } });
+    expect(targetConfig.experimental.model_route_tuning).toEqual({ enabled: true, intervalMinutes: 30 });
+    expect(saved.out.body.tuning).toEqual({ enabled: true, intervalMinutes: 30 });
+    const removed = res();
+    await handler({ body: { tuning: null } }, removed);
+    expect(targetConfig.experimental.model_route_tuning).toBeUndefined();
+    expect(removed.out.body.tuning).toBeNull();
+  });
+
+  it('PUT with neither routes nor tuning is a 400', async () => {
+    const { app, routes } = makeApp();
+    registerModelRouteRoutes(app, deps);
+    const response = res();
+    await routes.put[0][3]({ body: {} }, response);
+    expect(response.out.status).toBe(400);
+  });
+
+  it('PUT rejects out-of-range tuning', async () => {
+    const { app, routes } = makeApp();
+    registerModelRouteRoutes(app, deps);
+    const response = res();
+    await routes.put[0][3]({ body: { tuning: { intervalMinutes: 0 } } }, response);
+    expect(response.out.status).toBe(400);
+    expect(deps.writeConfig).not.toHaveBeenCalled();
   });
 
   it('PUT validates, writes and refreshes', async () => {

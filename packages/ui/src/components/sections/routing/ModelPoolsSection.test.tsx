@@ -7,18 +7,26 @@ import { createRoot, type Root } from 'react-dom/client';
 // `.mock`/`mockClear`, while the runtime behaviour is all these tests need.
 const routeFetches: string[] = [];
 const routeSaves: unknown[] = [];
+const tuningSaves: unknown[] = [];
 let serverRoutes: Record<string, { targets: string[] }> = {};
+let serverTuning: unknown = null;
 let saveError: Error | null = null;
 
 const fetchModelRoutes = async () => {
   routeFetches.push('fetch');
-  return { routes: serverRoutes, available: true };
+  return { routes: serverRoutes, tuning: serverTuning, available: true };
 };
 const saveModelRoutes = async (routes: unknown) => {
   routeSaves.push(routes);
   if (saveError) throw saveError;
   serverRoutes = routes as typeof serverRoutes;
-  return { routes, available: true };
+  return { routes, tuning: serverTuning, available: true };
+};
+const saveModelRouteTuning = async (tuning: unknown) => {
+  tuningSaves.push(tuning);
+  if (saveError) throw saveError;
+  serverTuning = tuning;
+  return { routes: serverRoutes, tuning, available: true };
 };
 const fetchRouteStats = async () => ({ available: false, reason: 'no-database' });
 
@@ -26,6 +34,7 @@ mock.module('@/lib/routing/modelRoutesApi', () => ({
   AUTONOMY_LEVELS: ['fixed', 'rules', 'adaptive', 'predictive', 'agent'],
   fetchModelRoutes,
   saveModelRoutes,
+  saveModelRouteTuning,
   fetchRouteStats,
 }));
 
@@ -34,7 +43,19 @@ const { I18nProvider } = await import('@/lib/i18n');
 const { useConfigStore } = await import('@/stores/useConfigStore');
 const { useRoutingStore } = await import('@/stores/useRoutingStore');
 
-const DOM_GLOBAL_NAMES = ['window', 'document', 'navigator', 'Node', 'Element', 'HTMLElement', 'localStorage', 'IS_REACT_ACT_ENVIRONMENT'] as const;
+const DOM_GLOBAL_NAMES = [
+  'window',
+  'document',
+  'navigator',
+  'Node',
+  'Element',
+  'HTMLElement',
+  'Event',
+  'KeyboardEvent',
+  'PointerEvent',
+  'localStorage',
+  'IS_REACT_ACT_ENVIRONMENT',
+] as const;
 
 const installDom = () => {
   const happyWindow = new Window({ url: 'http://localhost' });
@@ -46,6 +67,9 @@ const installDom = () => {
     Node: happyWindow.Node,
     Element: happyWindow.Element,
     HTMLElement: happyWindow.HTMLElement,
+    Event: happyWindow.Event,
+    KeyboardEvent: happyWindow.KeyboardEvent,
+    PointerEvent: happyWindow.PointerEvent,
     localStorage: happyWindow.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   };
@@ -98,13 +122,40 @@ const renderSection = async () => {
   };
 };
 
+const findByAriaLabel = (container: HTMLElement, selector: string, label: string) => {
+  const found = [...container.querySelectorAll<HTMLElement>(selector)].find((el) => el.getAttribute('aria-label') === label);
+  if (!found) throw new Error(`no ${selector} labelled "${label}"`);
+  return found;
+};
+const findInput = (container: HTMLElement, label: string) => findByAriaLabel(container, 'input', label) as HTMLInputElement;
+const findSwitch = (container: HTMLElement, label: string) => findByAriaLabel(container, '[role="switch"]', label);
+
+// Fields commit when the user leaves them; happy-dom does not route synthetic input events to React.
+const typeInto = async (input: HTMLInputElement, value: string) => {
+  await act(async () => {
+    input.value = value;
+    input.dispatchEvent(new Event('focusout', { bubbles: true }));
+  });
+};
+
+const openAdvanced = async (container: HTMLElement, poolName = 'kept') => {
+  const row = [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded="false"]')].find((el) => el.textContent?.includes(poolName));
+  expect(row).toBeTruthy();
+  await act(async () => row!.click());
+  const toggle = [...container.querySelectorAll('button')].find((el) => el.textContent?.trim() === 'Show advanced options');
+  expect(toggle).toBeTruthy();
+  await act(async () => toggle!.click());
+};
+
 describe('ModelPoolsSection', () => {
   let root: Root | null = null;
 
   beforeEach(() => {
     routeFetches.length = 0;
     routeSaves.length = 0;
+    tuningSaves.length = 0;
     serverRoutes = {};
+    serverTuning = null;
     saveError = null;
     useConfigStore.setState({
       providers: [
@@ -171,6 +222,84 @@ describe('ModelPoolsSection', () => {
       expect(text).toContain('kept');
       expect(text).not.toContain('cheap-pool');
       expect(text).toContain('nope');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('advanced editor saves a changed attempts count when the field is left', async () => {
+    serverRoutes = { kept: { targets: ['p/cheap'] } };
+    const { dom, cleanup } = await renderSection();
+    try {
+      await openAdvanced(dom.container);
+      await typeInto(findInput(dom.container, 'Attempts before failover'), '3');
+      expect(routeSaves.length).toBe(1);
+      expect((routeSaves[0] as Record<string, { attempts?: number }>).kept.attempts).toBe(3);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('advanced editor refuses an out-of-range value and saves nothing', async () => {
+    serverRoutes = { kept: { targets: ['p/cheap'] } };
+    const { dom, cleanup } = await renderSection();
+    try {
+      await openAdvanced(dom.container);
+      await typeInto(findInput(dom.container, 'Attempts before failover'), '99');
+      expect(routeSaves.length).toBe(0);
+      expect(dom.container.textContent).toContain('Enter a number from 1 to 50.');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('advanced editor converts hedge seconds to milliseconds', async () => {
+    serverRoutes = { kept: { targets: ['p/cheap'] } };
+    const { dom, cleanup } = await renderSection();
+    try {
+      await openAdvanced(dom.container);
+      await typeInto(findInput(dom.container, 'Hedge after (seconds)'), '2');
+      expect((routeSaves[0] as Record<string, { hedgeAfterMs?: number }>).kept.hedgeAfterMs).toBe(2000);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('advanced editor saves per-target budgets with the soft limit as a fraction', async () => {
+    serverRoutes = { kept: { targets: ['p/cheap'] } };
+    const { dom, cleanup } = await renderSection();
+    try {
+      await openAdvanced(dom.container);
+      await typeInto(findInput(dom.container, 'Requests per minute'), '60');
+      await typeInto(findInput(dom.container, 'Soft limit (% of allowance)'), '80');
+      const saved = routeSaves.at(-1) as Record<string, { budgets?: Record<string, Record<string, number>> }>;
+      expect(saved.kept.budgets).toEqual({ 'p/cheap': { requestsPerMinute: 60, softLimit: 0.8 } });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('automatic review switch saves enabled and then explicitly disabled', async () => {
+    const { dom, cleanup } = await renderSection();
+    try {
+      const toggle = findSwitch(dom.container, 'Review routing history automatically');
+      await act(async () => toggle.click());
+      expect(tuningSaves).toEqual([{ enabled: true }]);
+      await act(async () => findSwitch(dom.container, 'Review routing history automatically').click());
+      expect(tuningSaves.at(-1)).toEqual({ enabled: false });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test('automatic review interval is range checked before saving', async () => {
+    const { dom, cleanup } = await renderSection();
+    try {
+      await typeInto(findInput(dom.container, 'Minutes between reviews'), '5000');
+      expect(tuningSaves.length).toBe(0);
+      expect(dom.container.textContent).toContain('Enter a number from 1 to 1440.');
+      await typeInto(findInput(dom.container, 'Minutes between reviews'), '30');
+      expect(tuningSaves.at(-1)).toEqual({ intervalMinutes: 30 });
     } finally {
       await cleanup();
     }

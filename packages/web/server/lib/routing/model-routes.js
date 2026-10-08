@@ -19,11 +19,57 @@ const ROUTE_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
 const TARGET_PATTERN = /^[^/#]+\/[^#]+(?:#[^#]+)?$/;
 
 const isRecord = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const isWhole = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+const MAX_MS = 3_600_000;
+const MAX_COUNT = 50;
 
 /** The raw `experimental.model_routes` map from a merged OpenCode config, or {}. */
 export const readModelRoutes = (config) => {
   const routes = config?.experimental?.model_routes;
   return isRecord(routes) ? routes : {};
+};
+
+const readModelRouteTuning = (config) => {
+  const tuning = config?.experimental?.model_route_tuning;
+  return isRecord(tuning) ? tuning : null;
+};
+
+const HEALTH_LIMITS = {
+  firstTokenTimeoutMs: MAX_MS,
+  maxResponseTimeMs: MAX_MS,
+  cooldownMs: MAX_MS,
+  quotaCooldownMs: MAX_MS,
+  sampleWindow: MAX_COUNT,
+  slowThreshold: MAX_COUNT,
+};
+
+const validateHealth = (id, health) => {
+  if (!isRecord(health)) return `route "${id}" health must be an object`;
+  for (const [key, max] of Object.entries(HEALTH_LIMITS)) {
+    const value = health[key];
+    if (value === undefined) continue;
+    if (key === "firstTokenTimeoutMs" && value === false) continue;
+    if (!isWhole(value, 1, max)) return `route "${id}" health.${key} must be a whole number from 1 to ${max}`;
+  }
+  if (health.minOutputTokensPerSecond !== undefined && !(typeof health.minOutputTokensPerSecond === "number" && health.minOutputTokensPerSecond > 0))
+    return `route "${id}" health.minOutputTokensPerSecond must be a positive number`;
+  return null;
+};
+
+const BUDGET_LIMITS = ["requestsPerMinute", "requestsPerDay", "tokensPerMinute", "tokensPerDay"];
+
+const validateBudgets = (id, budgets) => {
+  if (!isRecord(budgets)) return `route "${id}" budgets must map target references to allowances`;
+  for (const [target, budget] of Object.entries(budgets)) {
+    if (!isRecord(budget)) return `route "${id}" budget for "${target}" must be an object`;
+    for (const key of BUDGET_LIMITS) {
+      if (budget[key] !== undefined && !isWhole(budget[key], 1, Number.MAX_SAFE_INTEGER))
+        return `route "${id}" budget for "${target}" ${key} must be a positive whole number`;
+    }
+    if (budget.softLimit !== undefined && !(typeof budget.softLimit === "number" && budget.softLimit >= 0.125 && budget.softLimit <= 1))
+      return `route "${id}" budget for "${target}" softLimit must be between 0.125 and 1`;
+  }
+  return null;
 };
 
 /** A single target: a `provider/model` string or `{ model, ... }` with variant overrides. */
@@ -57,6 +103,18 @@ export const validateModelRoute = (id, route) => {
         return `route "${id}" weight for "${key}" must be a positive number`;
     }
   }
+  if (route.attempts !== undefined && !isWhole(route.attempts, 1, MAX_COUNT))
+    return `route "${id}" attempts must be a whole number from 1 to ${MAX_COUNT}`;
+  if (route.hedgeAfterMs !== undefined && !isWhole(route.hedgeAfterMs, 1, MAX_MS))
+    return `route "${id}" hedgeAfterMs must be a whole number from 1 to ${MAX_MS}`;
+  if (route.health !== undefined) {
+    const problem = validateHealth(id, route.health);
+    if (problem) return problem;
+  }
+  if (route.budgets !== undefined) {
+    const problem = validateBudgets(id, route.budgets);
+    if (problem) return problem;
+  }
   return null;
 };
 
@@ -66,6 +124,16 @@ export const validateModelRoutes = (routes) => {
     const problem = validateModelRoute(id, route);
     if (problem) return problem;
   }
+  return null;
+};
+
+export const validateModelRouteTuning = (tuning) => {
+  if (!isRecord(tuning)) return "tuning must be an object";
+  if (tuning.enabled !== undefined && typeof tuning.enabled !== "boolean") return "tuning.enabled must be true or false";
+  if (tuning.intervalMinutes !== undefined && !isWhole(tuning.intervalMinutes, 1, 1440))
+    return "tuning.intervalMinutes must be a whole number from 1 to 1440";
+  if (tuning.windowHours !== undefined && !isWhole(tuning.windowHours, 1, 336))
+    return "tuning.windowHours must be a whole number from 1 to 336";
   return null;
 };
 
@@ -87,7 +155,11 @@ export const registerModelRouteRoutes = (app, dependencies) => {
   app.get("/api/model-routes", async (req, res) => {
     try {
       const layers = readConfigLayers(null);
-      res.json({ routes: readModelRoutes(layers.mergedConfig), path: layers.paths.userPath ?? CONFIG_FILE });
+      res.json({
+        routes: readModelRoutes(layers.mergedConfig),
+        tuning: readModelRouteTuning(layers.mergedConfig),
+        path: layers.paths.userPath ?? CONFIG_FILE,
+      });
     } catch (error) {
       res.status(500).json({ error: error?.message ?? "Failed to read model pools" });
     }
@@ -95,14 +167,24 @@ export const registerModelRouteRoutes = (app, dependencies) => {
 
   app.put("/api/model-routes", express.json({ limit: "256kb" }), refuseInEnterpriseMode, async (req, res) => {
     try {
-      const routes = req.body?.routes;
-      const problem = validateModelRoutes(routes);
-      if (problem) return res.status(400).json({ error: problem });
+      const { routes, tuning } = req.body ?? {};
+      if (routes === undefined && tuning === undefined)
+        return res.status(400).json({ error: "Send routes, tuning, or both" });
+      if (routes !== undefined) {
+        const problem = validateModelRoutes(routes);
+        if (problem) return res.status(400).json({ error: problem });
+      }
+      if (tuning !== undefined && tuning !== null) {
+        const problem = validateModelRouteTuning(tuning);
+        if (problem) return res.status(400).json({ error: problem });
+      }
       const layers = readConfigLayers(null);
       const targetPath = layers.paths.userPath ?? CONFIG_FILE;
       const targetConfig = getConfigForPath(layers, targetPath);
       if (!isRecord(targetConfig.experimental)) targetConfig.experimental = {};
-      targetConfig.experimental.model_routes = routes;
+      if (routes !== undefined) targetConfig.experimental.model_routes = routes;
+      if (tuning === null) delete targetConfig.experimental.model_route_tuning;
+      else if (tuning !== undefined) targetConfig.experimental.model_route_tuning = tuning;
       writeConfig(targetConfig, targetPath);
       if (refreshOpenCodeAfterConfigChange) {
         try {
@@ -111,7 +193,11 @@ export const registerModelRouteRoutes = (app, dependencies) => {
           // The file is written; a restart can pick it up later.
         }
       }
-      res.json({ routes, path: targetPath });
+      res.json({
+        routes: routes ?? readModelRoutes(layers.mergedConfig),
+        tuning: tuning === undefined ? readModelRouteTuning(layers.mergedConfig) : tuning,
+        path: targetPath,
+      });
     } catch (error) {
       res.status(500).json({ error: error?.message ?? "Failed to save model pools" });
     }
