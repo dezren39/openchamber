@@ -27,6 +27,7 @@ import {
   type RouteErrorGroup,
   type RouteTargetStats,
 } from '@/lib/routing/modelRoutesApi';
+import { fetchWaitEstimate, type WaitEstimate } from '@/lib/routing/routeRulesApi';
 import { PRESET_ROUTE_IDS, presetTargets, type PresetId } from '@/lib/routing/routePresets';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useRoutingStore } from '@/stores/useRoutingStore';
@@ -37,8 +38,56 @@ const PRESETS = [
   { id: 'sturdy', titleKey: 'settings.pools.preset.sturdy', infoKey: 'settings.pools.preset.sturdyInfo' },
 ] as const;
 
-const targetLabel = (target: string | { model: string }): string =>
-  typeof target === 'string' ? target : target.model;
+type RouteTarget = NonNullable<ModelRoute['targets']>[number];
+
+const targetLabel = (target: RouteTarget): string => (typeof target === 'string' ? target : target.model);
+
+const targetUntil = (target: RouteTarget): number | undefined =>
+  typeof target === 'string' ? undefined : target.until;
+
+/** The concrete provider and model of a target, or null for a pattern that names several models. */
+const concreteTarget = (target: RouteTarget): { providerID: string; modelID: string } | null => {
+  const [ref] = targetLabel(target).split('#');
+  const slash = ref.indexOf('/');
+  if (slash <= 0) return null;
+  const modelID = ref.slice(slash + 1);
+  if (modelID.includes('*')) return null;
+  return { providerID: ref.slice(0, slash), modelID };
+};
+
+const TargetWait: React.FC<{ providerID: string; modelID: string }> = ({ providerID, modelID }) => {
+  const { t } = useI18n();
+  const [estimate, setEstimate] = React.useState<WaitEstimate | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetchWaitEstimate(providerID, modelID)
+      .then((next) => {
+        if (!cancelled) setEstimate(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [providerID, modelID]);
+
+  if (!estimate) return null;
+  if (estimate.active) {
+    return (
+      <span className="typography-meta text-muted-foreground">
+        {t('settings.pools.wait.cooling', { minutes: Math.ceil(estimate.active.remainingMs / 60_000) })}
+      </span>
+    );
+  }
+  if (estimate.expectedMs === null) {
+    return <span className="typography-meta text-muted-foreground">{t('settings.pools.wait.none')}</span>;
+  }
+  return (
+    <span className="typography-meta text-muted-foreground">
+      {t('settings.pools.wait.expected', { minutes: Math.ceil(estimate.expectedMs / 60_000) })}
+    </span>
+  );
+};
 
 /** One pool: its targets, its autonomy level, and an expert JSON view. */
 const PoolRow: React.FC<{
@@ -52,6 +101,8 @@ const PoolRow: React.FC<{
   const { t } = useI18n();
   const [providerId, setProviderId] = React.useState('');
   const [modelId, setModelId] = React.useState('');
+  const [pattern, setPattern] = React.useState('');
+  const [patternUntil, setPatternUntil] = React.useState('');
   const [jsonText, setJsonText] = React.useState<string | null>(null);
   const [jsonError, setJsonError] = React.useState<string | null>(null);
 
@@ -63,6 +114,16 @@ const PoolRow: React.FC<{
     onChange({ ...route, targets: [...targets, ref] });
     setProviderId('');
     setModelId('');
+  };
+
+  const addPattern = () => {
+    const model = pattern.trim();
+    if (!model || targets.some((entry) => targetLabel(entry) === model)) return;
+    const until = patternUntil ? new Date(patternUntil).getTime() : Number.NaN;
+    const entry: RouteTarget = Number.isFinite(until) ? { model, until } : model;
+    onChange({ ...route, targets: [...targets, entry] });
+    setPattern('');
+    setPatternUntil('');
   };
 
   const applyJson = () => {
@@ -127,9 +188,20 @@ const PoolRow: React.FC<{
           </SettingsStackedField>
           <p className={SETTINGS_HELPER_CLASS}>{t(`settings.pools.autonomyHelp.${route.autonomy ?? 'unset'}`)}</p>
           <div className="space-y-1">
-            {targets.map((target, index) => (
+            {targets.map((target, index) => {
+              const until = targetUntil(target);
+              const concrete = concreteTarget(target);
+              return (
               <div key={`${targetLabel(target)}-${index}`} className="flex items-center gap-2">
-                <span className="typography-ui-label min-w-0 flex-1 truncate">{targetLabel(target)}</span>
+                <span className="typography-ui-label min-w-0 flex-1 truncate">
+                  {targetLabel(target)}
+                  {until !== undefined ? (
+                    <span className="typography-meta text-muted-foreground">
+                      {` · ${t('settings.pools.pattern.untilLabel', { time: new Date(until).toLocaleString() })}`}
+                    </span>
+                  ) : null}
+                </span>
+                {concrete ? <TargetWait providerID={concrete.providerID} modelID={concrete.modelID} /> : null}
                 <Button
                   size="sm"
                   variant="ghost"
@@ -138,8 +210,32 @@ const PoolRow: React.FC<{
                   {t('settings.pools.removeTarget')}
                 </Button>
               </div>
-            ))}
+              );
+            })}
           </div>
+          <SettingsStackedField label={t('settings.pools.pattern.label')} info={t('settings.pools.pattern.info')} controlClassName="max-w-none">
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-2">
+              <Input
+                value={pattern}
+                onChange={(event) => setPattern(event.target.value)}
+                placeholder={t('settings.pools.pattern.placeholder')}
+                aria-label={t('settings.pools.pattern.label')}
+                className="h-8 min-w-0 flex-1 rounded-md px-3"
+                maxLength={200}
+              />
+              <Input
+                type="datetime-local"
+                value={patternUntil}
+                onChange={(event) => setPatternUntil(event.target.value)}
+                aria-label={t('settings.pools.pattern.until')}
+                title={t('settings.pools.pattern.untilInfo')}
+                className="h-8 w-auto min-w-0 rounded-md px-2"
+              />
+              <Button size="sm" variant="outline" onClick={addPattern} disabled={!pattern.trim()}>
+                {t('settings.pools.pattern.add')}
+              </Button>
+            </div>
+          </SettingsStackedField>
           <div className="flex w-full min-w-0 items-center gap-2">
             <ModelSelector
               providerId={providerId}

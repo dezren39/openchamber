@@ -35,6 +35,7 @@ import { isAutoModel } from '@/lib/routing/autoModel';
 import { useRoutingStore } from '@/stores/useRoutingStore';
 import { JevAccessNote } from '@/components/sections/classification/JevAccessNote';
 import { ModelPoolsSection } from '@/components/sections/routing/ModelPoolsSection';
+import { RouteRulesSection } from '@/components/sections/routing/RouteRulesSection';
 
 const DEFAULT_VARIANT_VALUE = '__default__';
 const SAVE_DEBOUNCE_MS = 500;
@@ -502,6 +503,7 @@ export const RoutingPage: React.FC = () => {
             </div>
           </SettingsSection>
 
+          <RouteRulesSection />
           <ModelPoolsSection />
 
           <SettingsSection title={t('settings.routing.categories.title')}>

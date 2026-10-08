@@ -16,6 +16,7 @@ const targetSchema = z.union([
     model: z.string().min(1),
     defaultVariant: z.string().optional(),
     variants: z.record(z.string(), z.string()).optional(),
+    until: z.number().int().positive().optional(),
   }),
 ]);
 
