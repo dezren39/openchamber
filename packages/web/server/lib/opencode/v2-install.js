@@ -27,7 +27,7 @@ export const supportsOpenCodeV2Install = (platform = process.platform) =>
   (platform === 'darwin' || platform === 'linux' || platform === 'win32') && (process.arch === 'x64' || process.arch === 'arm64');
 
 const runInstaller = (script, version, env) => new Promise((resolve, reject) => {
-  const child = spawn('/bin/bash', [script, '--version', version, '--no-modify-path'], {
+  const child = spawn('bash', [script, '--version', version, '--no-modify-path'], {
     env, cwd: os.tmpdir(), detached: true, stdio: 'ignore',
   });
   const terminate = () => {

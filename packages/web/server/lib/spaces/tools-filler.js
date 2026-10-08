@@ -53,7 +53,7 @@ const PROGRAM_LINES = [
   "  for (const needed of ['node_modules/.bin/openchamber', 'node_modules/.bin/opencode', 'node_modules/@opencode/plugin/package.json']) {",
   "    if (!fs.existsSync(path.join(toolsDirectory, needed))) fail(needed + ' is missing after the install');",
   '  }',
-  "  run('/bin/sync', [], toolsDirectory);",
+  "  run('sync', [], toolsDirectory);",
   "  const flush = (target, flags) => { const descriptor = fs.openSync(target, flags); try { fs.fsyncSync(descriptor); } finally { fs.closeSync(descriptor); } };",
   "  const marker = path.join(toolsDirectory, '.filled');",
   "  fs.writeFileSync(marker + '.new', header.key);",
