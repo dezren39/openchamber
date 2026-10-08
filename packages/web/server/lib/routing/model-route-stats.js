@@ -59,6 +59,23 @@ const num = (value) => (typeof value === 'number' && Number.isFinite(value) ? va
  * `status`/`code` for missing database (`no-database`) or stock OpenCode
  * without the routing tables (`no-tables`).
  */
+/** A read-only handle on OpenCode's database with the routing tables; the caller closes it. */
+export const openRouteDb = async (dbPath) => {
+  if (!fs.existsSync(dbPath)) {
+    throw Object.assign(new Error(`OpenCode database not found at ${dbPath}`), { code: 'no-database', status: 404 });
+  }
+  const openDatabase = await loadSqlite();
+  const db = openDatabase(dbPath);
+  if (!hasRouteTables(db)) {
+    db.close();
+    throw Object.assign(new Error('This OpenCode build does not record routing telemetry'), {
+      code: 'no-tables',
+      status: 404,
+    });
+  }
+  return db;
+};
+
 export const queryRouteStats = async (dbPath, { hours = 24, now = Date.now() } = {}) => {
   const windowHours = Math.min(336, Math.max(0.1, Number(hours) || 24));
   if (!fs.existsSync(dbPath)) {

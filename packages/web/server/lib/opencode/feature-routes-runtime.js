@@ -22,6 +22,8 @@ import { registerMessageQueueRoutes } from '../message-queue/runtime.js';
 import { registerRoutingPromptRewrite, registerRoutingRoutes } from '../routing/routes.js';
 import { registerModelRouteRoutes } from '../routing/model-routes.js';
 import { registerModelRouteStatsRoutes } from '../routing/model-route-stats.js';
+import { registerRouteRulesRoutes } from '../routing/route-rules-routes.js';
+import { createJevClient } from '../routing/jev.js';
 import { isEnterpriseMode } from '../enterprise-mode.js';
 import { registerConfigEntityRoutes } from './config-entity-routes.js';
 import { registerSettingsUtilityRoutes } from './core-routes.js';
@@ -256,6 +258,7 @@ export const createFeatureRoutesRuntime = (dependencies) => {
       refreshOpenCodeAfterConfigChange,
     });
     registerModelRouteStatsRoutes(app);
+    registerRouteRulesRoutes(app, { routingRuntime, jev: createJevClient() });
     // Before the generic OpenCode proxy: swallows the `openchamber/auto` model
     // switch and routes the sends that follow it.
     registerRoutingPromptRewrite(app, routingRuntime);

@@ -32,6 +32,8 @@ const validateTarget = (target) => {
   if (!isRecord(target)) return "must be a provider/model string or an object with a model field";
   if (typeof target.model !== "string" || !TARGET_PATTERN.test(target.model))
     return "its model must look like provider/model";
+  if (target.until !== undefined && !(Number.isInteger(target.until) && target.until > 0))
+    return "its until must be a positive epoch-millisecond time";
   return null;
 };
 

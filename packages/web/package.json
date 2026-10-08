@@ -111,5 +111,8 @@
     "public",
     "package.json",
     "README.md"
-  ]
+  ],
+  "optionalDependencies": {
+    "node-llama-cpp": "^3.22.1"
+  }
 }
